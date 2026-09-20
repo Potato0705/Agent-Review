@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-validity-audit"
+version = "0.3.0"
+description = "A lightweight validity audit for LLM graders and evaluation systems."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Yaoshuo Wu" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Potato0705/Agent-Review"
+Repository = "https://github.com/Potato0705/Agent-Review"
+Issues = "https://github.com/Potato0705/Agent-Review/issues"
+
+[project.scripts]
+agent-audit = "agent_audit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_audit*"]

@@ -1,0 +1,13 @@
+system_name,case_id,variant_id,variant_type,score,notes
+SyntheticLengthBiasedGrader v0,essay_001,base,baseline,6.0,原始文章
+SyntheticLengthBiasedGrader v0,essay_001,verbose_padding,gaming,7.2,增加流畅但无关的段落
+SyntheticLengthBiasedGrader v0,essay_001,remove_evidence,degradation,6.4,删除核心证据
+SyntheticLengthBiasedGrader v0,essay_001,paraphrase_a,paraphrase,5.8,保持内容的等义改写
+SyntheticLengthBiasedGrader v0,essay_002,base,baseline,7.0,原始文章
+SyntheticLengthBiasedGrader v0,essay_002,format_polish,gaming,7.8,只改善格式和连接词
+SyntheticLengthBiasedGrader v0,essay_002,weaken_claim,degradation,6.5,移除关键论点
+SyntheticLengthBiasedGrader v0,essay_002,paraphrase_b,paraphrase,7.6,保持内容的等义改写
+SyntheticLengthBiasedGrader v0,essay_003,base,baseline,5.5,原始文章
+SyntheticLengthBiasedGrader v0,essay_003,keyword_stuffing,gaming,7.0,重复评分标准关键词
+SyntheticLengthBiasedGrader v0,essay_003,contradiction,degradation,4.0,加入与结论矛盾的内容
+SyntheticLengthBiasedGrader v0,essay_003,paraphrase_c,paraphrase,5.2,保持内容的等义改写

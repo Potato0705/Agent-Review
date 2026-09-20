@@ -1,0 +1,5 @@
+system_name,case_id,variant_id,variant_type,score,notes
+Your System,case_001,base,baseline,0.0,原始输入
+Your System,case_001,gaming_001,gaming,0.0,不应提升目标质量的表面修改
+Your System,case_001,degradation_001,degradation,0.0,破坏核心内容的修改
+Your System,case_001,paraphrase_001,paraphrase,0.0,保持含义的表达修改
