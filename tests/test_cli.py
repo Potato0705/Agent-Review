@@ -529,6 +529,24 @@ class GenerateCommandTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
         self.assertFalse(self.output.exists())
 
+    def test_refuses_to_overwrite_an_existing_case_file(self) -> None:
+        """The README invites hand-editing these rows, so overwriting loses work."""
+
+        self._run()
+        rows = list(csv.DictReader(self.output.open(encoding="utf-8")))
+        rows[1]["text"] = "【手工改写的变体】"
+        with self.output.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+        with self.assertRaises(SystemExit) as caught:
+            self._run()
+
+        self.assertEqual(caught.exception.code, 2)
+        preserved = list(csv.DictReader(self.output.open(encoding="utf-8")))
+        self.assertEqual(preserved[1]["text"], "【手工改写的变体】")
+
     def test_an_unknown_strategy_is_a_usage_error(self) -> None:
         with self.assertRaises(SystemExit) as caught:
             self._run("--gaming", "keyword_stuffing")
@@ -554,6 +572,103 @@ class GenerateCommandTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, 2)
         self.assertFalse(self.output.exists())
+
+
+class AppendModeTests(unittest.TestCase):
+    BASELINES = ROOT / "examples" / "essay_baselines.csv"
+
+    def setUp(self) -> None:
+        self.work = Path(tempfile.mkdtemp())
+        self.output = self.work / "cases.csv"
+        self.manifest = self.output.with_suffix(".manifest.json")
+
+    def _run(self, *extra: str) -> int:
+        return main(
+            [
+                "generate",
+                "--input", str(self.BASELINES),
+                "--output", str(self.output),
+                *extra,
+            ]
+        )
+
+    def _rows(self) -> list[dict[str, str]]:
+        return list(csv.DictReader(self.output.open(encoding="utf-8")))
+
+    def _edit_first_gaming_row(self) -> str:
+        rows = self._rows()
+        target = next(r for r in rows if r["variant_id"] == "gaming_verbose_padding")
+        target["text"] = "【手工改写的变体】"
+        with self.output.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        return target["text"]
+
+    def test_append_adds_a_newly_selected_strategy(self) -> None:
+        self._run("--gaming", "verbose_padding")
+        before = {(r["case_id"], r["variant_id"]) for r in self._rows()}
+
+        self.assertEqual(self._run("--append"), 0)
+
+        after = {(r["case_id"], r["variant_id"]) for r in self._rows()}
+        self.assertTrue(before < after)
+        self.assertIn(("school_start", "gaming_rubric_flattery"), after)
+
+    def test_append_keeps_hand_edits_untouched(self) -> None:
+        self._run("--gaming", "verbose_padding")
+        edited = self._edit_first_gaming_row()
+
+        self._run("--append")
+
+        kept = next(
+            r for r in self._rows() if r["variant_id"] == "gaming_verbose_padding"
+        )
+        self.assertEqual(kept["text"], edited)
+
+    def test_a_clean_append_keeps_the_set_machine_generated(self) -> None:
+        self._run("--gaming", "verbose_padding")
+
+        self._run("--append")
+
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["set_origin"], "machine-generated")
+        self.assertGreater(len(manifest["merge"]["appended"]), 0)
+
+    def test_an_edited_row_marks_the_set_mixed(self) -> None:
+        self._run("--gaming", "verbose_padding")
+        self._edit_first_gaming_row()
+
+        self._run("--append")
+
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["set_origin"], "mixed")
+        self.assertEqual(len(manifest["merge"]["edited"]), 1)
+
+    def test_a_first_run_records_a_machine_generated_set(self) -> None:
+        self._run()
+
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["set_origin"], "machine-generated")
+        self.assertEqual(manifest["merge"]["edited"], [])
+        self.assertEqual(manifest["merge"]["foreign"], [])
+
+    def test_append_without_an_existing_file_is_a_usage_error(self) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--append")
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_the_fingerprint_follows_the_merged_file(self) -> None:
+        self._run("--gaming", "verbose_padding")
+        first = json.loads(self.manifest.read_text(encoding="utf-8"))["output_sha256"]
+
+        self._run("--append")
+        second = json.loads(self.manifest.read_text(encoding="utf-8"))["output_sha256"]
+
+        self.assertNotEqual(first, second)
+        cases = load_scoring_cases(self.output)
+        self.assertEqual(len(cases), len(self._rows()))
 
 
 class GenerationProvenanceTests(unittest.TestCase):
@@ -706,6 +821,28 @@ class GenerationProvenanceTests(unittest.TestCase):
             )
 
         self.assertEqual(caught.exception.code, 2)
+
+    def test_a_mixed_set_cannot_be_declared_machine_generated(self) -> None:
+        """Appending onto hand edits must not launder them into a proof."""
+
+        self._refuse_with_manifest(
+            self._mutated_manifest(set_origin="mixed"),
+            "contains hand-written or hand-edited rows",
+        )
+
+    def test_a_manifest_predating_the_origin_field_still_verifies(self) -> None:
+        manifest = self._mutated_manifest()
+        manifest.pop("set_origin", None)
+        manifest.pop("merge", None)
+        path = self.work / "legacy.json"
+        path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+        status = self._audit(
+            "--variant-origin", "machine-generated",
+            "--generation-manifest", str(path),
+        )
+
+        self.assertEqual(status, 0)
 
     def _refuse_with_manifest(self, payload: Any, pattern: str) -> None:
         """Assert which refusal fired, not merely that something failed."""

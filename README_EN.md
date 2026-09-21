@@ -69,6 +69,8 @@ python -m agent_audit generate `
 
 The input marks which sentences carry the argument (`evidence_sentences`, 1-based). The tool never infers that: a missing, out-of-range, or all-covering annotation stops the run. Every variant must satisfy a machine-checkable postcondition before it is written — a gaming variant must still contain the whole baseline as a prefix, and a degradation variant must contain none of the annotated sentences while keeping the rest in order. The manifest records each intervention's size and the exact corpus sentences inserted, so a reviewer can confirm the padding really is irrelevant to that prompt.
 
+The case file holds your hand edits, so it is never overwritten: `generate` refuses when the output already exists. Use `--append` to merge new variants in, keeping every existing row. Merging also compares each kept row against what the generator would produce — one edited row or one hand-written variant marks the whole set `mixed`, and the audit then refuses to call it machine-generated. Appending therefore cannot launder hand-written content into a verifiable claim.
+
 Auditing a generated set requires proof, not just a claim:
 
 ```powershell

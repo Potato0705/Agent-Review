@@ -235,6 +235,37 @@ MUTANTS: tuple[Mutant, ...] = (
         '            "未通过是确凿证据，通过不能证明系统可靠。"',
         '            "变体由工具生成。"',
     ),
+    # --- appending must not destroy or launder hand-written work --------------
+    Mutant(
+        "cli",
+        "overwrite an existing case file and its hand edits",
+        '    if output_path.exists() and not getattr(args, "append", False):',
+        "    if False:",
+    ),
+    Mutant(
+        "cli",
+        "accept a mixed set as machine-generated",
+        '    if set_origin != "machine-generated":',
+        "    if False:",
+    ),
+    Mutant(
+        "variants",
+        "call an edited set machine-generated anyway",
+        '        return "mixed" if self.edited or self.foreign else "machine-generated"',
+        '        return "machine-generated"',
+    ),
+    Mutant(
+        "variants",
+        "overwrite an existing row with the freshly generated one",
+        "        if current is None:\n"
+        "            rows.append(row)\n"
+        "            appended.append(identity)\n"
+        "            continue",
+        "        if True:\n"
+        "            rows.append(row)\n"
+        "            appended.append(identity)\n"
+        "            continue",
+    ),
     # --- a machine-generated claim must be provable ----------------------------
     Mutant(
         "cli",

@@ -436,3 +436,97 @@ def generate_variants(
         "variants": records,
     }
     return GenerationRun(rows=tuple(rows), manifest=manifest)
+
+
+Identity = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class MergeOutcome:
+    """The result of merging a freshly generated set into an existing file."""
+
+    rows: tuple[GeneratedRow, ...]
+    preserved: tuple[Identity, ...]
+    appended: tuple[Identity, ...]
+    edited: tuple[Identity, ...]
+    foreign: tuple[Identity, ...]
+
+    @property
+    def set_origin(self) -> str:
+        """Whether the merged set can still be called machine-generated.
+
+        One hand-edited row or one hand-written variant is enough to make the
+        whole set mixed. Without this, appending would launder hand-written
+        content into a fingerprint the audit would happily verify.
+        """
+
+        return "mixed" if self.edited or self.foreign else "machine-generated"
+
+
+def merge_into_existing(
+    generated: tuple[GeneratedRow, ...], existing: list[Any]
+) -> MergeOutcome:
+    """Keep every existing row, add the missing ones, and classify each one.
+
+    ``existing`` holds objects with ``case_id``, ``variant_id``,
+    ``variant_type``, ``text`` and ``notes`` — the shape
+    ``load_scoring_cases`` returns.
+    """
+
+    by_identity = {(row.case_id, row.variant_id): row for row in existing}
+    if len(by_identity) != len(existing):
+        raise ValueError("The existing case file contains duplicate case/variant ids.")
+
+    rows: list[GeneratedRow] = []
+    preserved: list[Identity] = []
+    appended: list[Identity] = []
+    edited: list[Identity] = []
+    covered: set[Identity] = set()
+
+    for row in generated:
+        identity = (row.case_id, row.variant_id)
+        covered.add(identity)
+        current = by_identity.get(identity)
+        if current is None:
+            rows.append(row)
+            appended.append(identity)
+            continue
+        rows.append(
+            GeneratedRow(
+                case_id=current.case_id,
+                variant_id=current.variant_id,
+                variant_type=current.variant_type,
+                text=current.text,
+                notes=current.notes,
+            )
+        )
+        # Notes are hashed alongside the text, so a note-only edit changes the
+        # set just as much as a rewritten variant does.
+        if current.text == row.text and current.notes == row.notes:
+            preserved.append(identity)
+        else:
+            edited.append(identity)
+
+    foreign: list[Identity] = []
+    for row in existing:
+        identity = (row.case_id, row.variant_id)
+        if identity in covered:
+            continue
+        foreign.append(identity)
+        rows.append(
+            GeneratedRow(
+                case_id=row.case_id,
+                variant_id=row.variant_id,
+                variant_type=row.variant_type,
+                text=row.text,
+                notes=row.notes,
+            )
+        )
+
+    return MergeOutcome(
+        rows=tuple(rows),
+        preserved=tuple(preserved),
+        appended=tuple(appended),
+        edited=tuple(edited),
+        foreign=tuple(foreign),
+    )

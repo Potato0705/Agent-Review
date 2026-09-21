@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import sys
+from typing import Any
 from urllib.parse import urlsplit
 
 from .audit import AuditConfig, audit_records
@@ -27,6 +28,7 @@ from .variants import (
     DEGRADATION_STRATEGIES,
     GAMING_STRATEGIES,
     generate_variants,
+    merge_into_existing,
 )
 
 
@@ -162,6 +164,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate_parser.add_argument(
         "--seed", type=int, default=0, help="Seed for corpus selection."
+    )
+    generate_parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Merge into an existing case file: keep every row already there, "
+            "including hand edits, and add only the missing ones."
+        ),
     )
     return parser
 
@@ -361,6 +371,16 @@ def _load_generation_context(
             "--variant-origin mixed instead of machine-generated."
         )
 
+    # Manifests written before append mode existed described a full generation
+    # run, so a missing field means the set was entirely machine-generated.
+    set_origin = manifest.get("set_origin", "machine-generated")
+    if set_origin != "machine-generated":
+        raise ValueError(
+            "The generation manifest says this set contains hand-written or "
+            "hand-edited rows, so it is mixed, not machine-generated. Declare "
+            "--variant-origin mixed."
+        )
+
     seed = manifest.get("seed")
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("Generation manifest seed must be an integer.")
@@ -494,6 +514,13 @@ def _strategy_list(raw: str | None) -> tuple[str, ...]:
 
 
 def run_generate(args: argparse.Namespace) -> int:
+    output_path = Path(args.output)
+    if output_path.exists() and not getattr(args, "append", False):
+        raise ValueError(
+            f"Case file already exists: {output_path}. Hand edits live in this "
+            "file, so it is never overwritten; use --append to merge or choose "
+            "a new path."
+        )
     cases = load_baseline_cases(args.input)
     run = generate_variants(
         cases,
@@ -503,7 +530,31 @@ def run_generate(args: argparse.Namespace) -> int:
         paraphrase=_strategy_list(getattr(args, "paraphrase", None)),
     )
 
-    output_path = write_scoring_cases(args.output, run.rows)
+    rows = run.rows
+    merge_summary: dict[str, Any] = {
+        "appended": [],
+        "preserved": [[row.case_id, row.variant_id] for row in rows],
+        "edited": [],
+        "foreign": [],
+    }
+    set_origin = "machine-generated"
+    if getattr(args, "append", False):
+        if not output_path.exists():
+            raise ValueError(
+                f"--append needs an existing case file, but {output_path} does not "
+                "exist. Run without --append to create it."
+            )
+        outcome = merge_into_existing(run.rows, load_scoring_cases(output_path))
+        rows = outcome.rows
+        set_origin = outcome.set_origin
+        merge_summary = {
+            "appended": [list(item) for item in outcome.appended],
+            "preserved": [list(item) for item in outcome.preserved],
+            "edited": [list(item) for item in outcome.edited],
+            "foreign": [list(item) for item in outcome.foreign],
+        }
+
+    output_path = write_scoring_cases(output_path, rows)
     manifest_path = (
         Path(args.manifest)
         if getattr(args, "manifest", None)
@@ -511,6 +562,21 @@ def run_generate(args: argparse.Namespace) -> int:
     )
     manifest = {
         **run.manifest,
+        "output_sha256": stable_hash(
+            [
+                {
+                    "case_id": row.case_id,
+                    "variant_id": row.variant_id,
+                    "variant_type": row.variant_type,
+                    "text": row.text,
+                    "notes": row.notes,
+                }
+                for row in rows
+            ]
+        ),
+        "row_count": len(rows),
+        "set_origin": set_origin,
+        "merge": merge_summary,
         "input_path": str(Path(args.input).resolve()),
         "input_sha256": stable_hash(
             [
@@ -527,11 +593,18 @@ def run_generate(args: argparse.Namespace) -> int:
 
     print(f"Cases written to: {output_path.resolve()}")
     print(f"Manifest written to: {manifest_path.resolve()}")
-    print(
-        f"Generated {len(run.rows)} rows from {len(cases)} baselines. "
-        "Variants are machine-generated: review each one before delivery and "
-        "declare --variant-origin machine-generated when auditing."
-    )
+    print(f"Generated {len(rows)} rows from {len(cases)} baselines.")
+    if set_origin == "mixed":
+        print(
+            "This set contains hand-written or hand-edited rows, so it is mixed, "
+            "not machine-generated. Audit it with --variant-origin mixed.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Variants are machine-generated: review each one before delivery, "
+            "then audit with --variant-origin machine-generated and this manifest."
+        )
     return 0
 
 
