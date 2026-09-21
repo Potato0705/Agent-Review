@@ -10,112 +10,236 @@ Run it directly, or through ``scripts/review.ps1``::
 
     python scripts/coverage_report.py
     python scripts/coverage_report.py --show-missing
+
+Why this does not use ``python -m trace --ignore-dir``
+------------------------------------------------------
+``trace`` decides what to skip with :class:`trace._Ignore`, which is keyed by
+the *bare file basename* and caches its answers. Once the standard library's
+``io.py`` is skipped, the cache holds ``{"io": 1}``, so ``agent_audit/io.py``
+is skipped too and silently vanishes from the report. Which file is seen first
+depends on the platform, so the same command reported ten modules on Windows
+and nine on Linux. This module therefore drives :class:`trace.Trace` directly
+and decides what to record from the absolute path alone.
 """
 
 from __future__ import annotations
 
 import argparse
-import shutil
+import json
+import os
 import subprocess
 import sys
-import sysconfig
 import tempfile
+import trace
+import types
+import unittest
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = PROJECT_ROOT / "agent_audit"
+TESTS_DIR = PROJECT_ROOT / "tests"
 
-# Ratchets, not targets. Each floor sits just under the coverage that was
-# actually measured when it was set, so deleting or weakening tests trips the
-# gate while an ordinary refactor does not. Raise a floor once the matching
-# tests exist; never lower one to turn a red run green.
-OVERALL_FLOOR = 99.0
-MODULE_FLOORS = {
-    "audit": 98.8,
-    "checkpoint": 99.0,
-    "cli": 97.0,
-    "comparison": 98.8,
-    "html_report": 100.0,
-    "io": 100.0,
-    "models": 100.0,
-    "provider": 98.9,
-    "report": 100.0,
-    "scoring": 100.0,
+# ``python -m agent_audit`` is a four-line shim. The unit suite imports the CLI
+# directly, so the shim only runs in the packaging and offline-demo steps and
+# would otherwise report as permanently uncovered.
+EXCLUDED_MODULES = frozenset({"__main__"})
+
+# Budgets are expressed as a maximum number of uncovered lines rather than a
+# percentage. Interpreters disagree slightly about which lines carry bytecode —
+# Python 3.10 and 3.12 differ by a line or two in several modules — and a
+# percentage turns that into a swing whose size depends on how big the module
+# is. A line budget says the thing we actually care about: how many executable
+# lines no test ever touches.
+#
+# Each budget is the measured count plus a two-line allowance for that
+# interpreter disagreement. Tighten a budget once the matching tests exist;
+# never raise one to turn a red run green. Budgets must hold on the lowest
+# supported interpreter, not just the one they were measured on.
+MAX_UNCOVERED_LINES = {
+    "__init__": 2,
+    "audit": 4,
+    "checkpoint": 3,
+    "cli": 9,
+    "comparison": 5,
+    "html_report": 2,
+    "io": 2,
+    "models": 2,
+    "provider": 3,
+    "report": 2,
+    "scoring": 2,
 }
+
+# A coarse net underneath the per-module budgets, with headroom for the same
+# interpreter differences.
+OVERALL_FLOOR = 97.0
 
 # Percentages are compared at the precision they are printed, so the table and
 # the verdict can never contradict each other.
 DISPLAY_PLACES = 1
 
-RUNNER = """import sys, unittest
-sys.path.insert(0, {root!r})
-sys.path.insert(0, {tests!r})
-suite = unittest.TestLoader().discover(start_dir={tests!r}, top_level_dir=None)
-result = unittest.TextTestRunner(verbosity=0).run(suite)
-sys.exit(0 if result.wasSuccessful() else 1)
-"""
+
+class _PathScopedIgnore:
+    """Record a frame only when its file lives inside the package.
+
+    This deliberately ignores the module name that :mod:`trace` passes in.
+    Deciding from the path alone is what keeps ``agent_audit/io.py`` from being
+    mistaken for the standard library's ``io``.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = os.path.normcase(str(root.resolve())) + os.sep
+
+    def names(self, filename: str, modulename: str) -> int:
+        try:
+            resolved = os.path.normcase(os.path.abspath(filename))
+        except (TypeError, ValueError):
+            return 1
+        return 0 if resolved.startswith(self._root) else 1
 
 
-class ModuleCoverage:
-    def __init__(self, name: str, executed: int, missing: list[tuple[int, str]]):
-        self.name = name
-        self.executed = executed
-        self.missing = missing
+def _executable_linenos(path: Path) -> set[int]:
+    """Return every line number that carries bytecode."""
 
-    @property
-    def total(self) -> int:
-        return self.executed + len(self.missing)
+    code = compile(path.read_text(encoding="utf-8"), str(path), "exec")
+    linenos: set[int] = set()
+    pending: list[types.CodeType] = [code]
+    while pending:
+        obj = pending.pop()
+        for _, _, lineno in obj.co_lines():
+            if lineno:
+                linenos.add(lineno)
+        pending.extend(
+            const for const in obj.co_consts if isinstance(const, types.CodeType)
+        )
+    return linenos
 
-    @property
-    def percent(self) -> float:
-        return 100.0 * self.executed / self.total if self.total else 100.0
 
+def _collect(output_path: Path) -> int:
+    """Run the suite under the tracer and record which package lines ran."""
 
-def _run_traced_suite(cover_dir: Path, runner_path: Path) -> int:
-    runner_path.write_text(
-        RUNNER.format(
-            root=str(PROJECT_ROOT), tests=str(PROJECT_ROOT / "tests")
-        ),
+    sys.path.insert(0, str(PROJECT_ROOT))
+    sys.path.insert(0, str(TESTS_DIR))
+
+    tracer = trace.Trace(count=1, trace=0)
+    tracer.ignore = _PathScopedIgnore(PACKAGE_DIR)  # type: ignore[assignment]
+
+    outcome: dict[str, bool] = {}
+
+    def run_suite() -> None:
+        # Discovery must happen inside the traced region: importing the test
+        # modules is what executes the package's module-level code, its class
+        # bodies and every `def` line. Discovering first would leave all of
+        # that unrecorded and understate every module.
+        suite = unittest.TestLoader().discover(start_dir=str(TESTS_DIR))
+        outcome["ok"] = unittest.TextTestRunner(verbosity=0).run(suite).wasSuccessful()
+
+    tracer.runfunc(run_suite)
+
+    executed: dict[str, list[int]] = {}
+    for filename, lineno in tracer.results().counts:
+        executed.setdefault(os.path.abspath(filename), []).append(lineno)
+
+    output_path.write_text(
+        json.dumps({"ok": outcome.get("ok", False), "executed": executed}),
         encoding="utf-8",
         newline="\n",
     )
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "trace",
-            "--count",
-            "--missing",
-            f"--coverdir={cover_dir}",
-            f"--ignore-dir={sysconfig.get_paths()['stdlib']}",
-            str(runner_path),
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if completed.returncode != 0:
-        sys.stderr.write(completed.stdout or "")
-        sys.stderr.write(completed.stderr or "")
-    return completed.returncode
+    return 0 if outcome.get("ok") else 1
 
 
-def _parse_cover_files(cover_dir: Path) -> list[ModuleCoverage]:
+class ModuleCoverage:
+    def __init__(self, name: str, executed: set[int], executable: set[int]) -> None:
+        self.name = name
+        self.covered = executed & executable
+        self.missing = sorted(executable - executed)
+        self.total = len(executable)
+
+    @property
+    def percent(self) -> float:
+        return 100.0 * len(self.covered) / self.total if self.total else 100.0
+
+
+def _measure(executed_by_file: dict[str, list[int]]) -> list[ModuleCoverage]:
+    normalised = {
+        os.path.normcase(path): set(lines) for path, lines in executed_by_file.items()
+    }
     modules: list[ModuleCoverage] = []
-    for cover_file in sorted(cover_dir.glob("agent_audit.*.cover")):
-        name = cover_file.stem.replace("agent_audit.", "")
-        executed = 0
-        missing: list[tuple[int, str]] = []
-        text = cover_file.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(text.splitlines(), start=1):
-            if line.startswith(">>>>>>"):
-                missing.append((number, line[7:].strip()))
-            elif line.split(":", 1)[0].strip().isdigit():
-                executed += 1
-        modules.append(ModuleCoverage(name, executed, missing))
+    for source in sorted(PACKAGE_DIR.glob("*.py")):
+        if source.stem in EXCLUDED_MODULES:
+            continue
+        key = os.path.normcase(str(source.resolve()))
+        modules.append(
+            ModuleCoverage(
+                source.stem, normalised.get(key, set()), _executable_linenos(source)
+            )
+        )
     return modules
+
+
+def _report(modules: list[ModuleCoverage], show_missing: bool) -> int:
+    covered = sum(len(module.covered) for module in modules)
+    total = sum(module.total for module in modules)
+    overall = round(100.0 * covered / total if total else 100.0, DISPLAY_PLACES)
+
+    failures: list[str] = []
+    print(f"{'module':<16}{'missed':>8}{'budget':>8}{'covered':>10}")
+    for module in modules:
+        shown = round(module.percent, DISPLAY_PLACES)
+        budget = MAX_UNCOVERED_LINES.get(module.name)
+        uncovered = len(module.missing)
+        marker = ""
+        if module.total and not module.covered:
+            # A module with no recorded lines at all is almost always a
+            # measurement failure rather than a real result.
+            failures.append(f"{module.name}: no lines were recorded at all")
+            marker = "  no data"
+        elif budget is None:
+            failures.append(f"{module.name}: has no budget in MAX_UNCOVERED_LINES")
+            marker = "  no budget"
+        elif uncovered > budget:
+            failures.append(
+                f"{module.name}: {uncovered} uncovered lines exceed its budget of {budget}"
+            )
+            marker = "  over budget"
+        budget_text = "-" if budget is None else str(budget)
+        print(
+            f"{module.name:<16}{uncovered:>8}{budget_text:>8}{shown:>9.1f}%{marker}"
+        )
+    print(f"{'OVERALL':<16}{total - covered:>8}{'':>8}{overall:>9.1f}%")
+
+    measured = {module.name for module in modules}
+    unknown = sorted(set(MAX_UNCOVERED_LINES) - measured)
+    if unknown:
+        failures.append("budgets name modules that do not exist: " + ", ".join(unknown))
+
+    if overall < OVERALL_FLOOR:
+        failures.append(
+            f"overall: {overall:.1f}% is below the {OVERALL_FLOOR:.1f}% floor"
+        )
+
+    if show_missing:
+        for module in modules:
+            if not module.missing:
+                continue
+            source = (
+                (PACKAGE_DIR / f"{module.name}.py")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            )
+            print(f"\n--- {module.name}: {len(module.missing)} uncovered ---")
+            for lineno in module.missing:
+                text = source[lineno - 1].strip() if lineno <= len(source) else ""
+                print(f"  {lineno:>4}: {text}")
+
+    if failures:
+        print("\nCoverage gate failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+
+    print("\nCoverage gate passed.")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,73 +249,41 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print every line the test suite never executed.",
     )
+    parser.add_argument(
+        "--collect",
+        metavar="PATH",
+        help=argparse.SUPPRESS,  # internal: the traced child writes JSON here
+    )
     args = parser.parse_args(argv)
 
-    work_dir = Path(tempfile.mkdtemp(prefix="agent-audit-coverage-"))
-    try:
-        cover_dir = work_dir / "cover"
-        cover_dir.mkdir()
-        suite_status = _run_traced_suite(cover_dir, work_dir / "run_suite.py")
-        if suite_status != 0:
+    if args.collect:
+        return _collect(Path(args.collect))
+
+    with tempfile.TemporaryDirectory(prefix="agent-audit-coverage-") as work:
+        data_path = Path(work) / "coverage.json"
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--collect", str(data_path)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONUTF8": "1"},
+        )
+        if not data_path.exists():
+            sys.stderr.write(completed.stdout or "")
+            sys.stderr.write(completed.stderr or "")
+            print("The traced run produced no coverage data.", file=sys.stderr)
+            return 1
+
+        payload = json.loads(data_path.read_text(encoding="utf-8"))
+        if not payload.get("ok"):
+            sys.stderr.write(completed.stdout or "")
+            sys.stderr.write(completed.stderr or "")
             print("Test suite failed under coverage tracing.", file=sys.stderr)
-            return suite_status
-
-        modules = _parse_cover_files(cover_dir)
-        if not modules:
-            print("No coverage data was produced.", file=sys.stderr)
             return 1
 
-        executed = sum(module.executed for module in modules)
-        total = sum(module.total for module in modules)
-        overall = 100.0 * executed / total if total else 100.0
-
-        print(f"{'module':<16}{'missed':>8}{'covered':>10}")
-        failures: list[str] = []
-        for module in modules:
-            shown = round(module.percent, DISPLAY_PLACES)
-            floor = MODULE_FLOORS.get(module.name)
-            marker = ""
-            if floor is not None and shown < floor:
-                marker = f"  < floor {floor:.1f}%"
-                failures.append(
-                    f"{module.name}: {shown:.1f}% is below its {floor:.1f}% floor"
-                )
-            print(
-                f"{module.name:<16}{len(module.missing):>8}{shown:>9.1f}%{marker}"
-            )
-        shown_overall = round(overall, DISPLAY_PLACES)
-        print(f"{'OVERALL':<16}{total - executed:>8}{shown_overall:>9.1f}%")
-
-        unknown = sorted(set(MODULE_FLOORS) - {module.name for module in modules})
-        if unknown:
-            failures.append(
-                "floors name modules that produced no coverage data: "
-                + ", ".join(unknown)
-            )
-
-        if shown_overall < OVERALL_FLOOR:
-            failures.append(
-                f"overall: {shown_overall:.1f}% is below the {OVERALL_FLOOR:.1f}% floor"
-            )
-
-        if args.show_missing:
-            for module in modules:
-                if not module.missing:
-                    continue
-                print(f"\n--- {module.name}: {len(module.missing)} uncovered ---")
-                for number, source in module.missing:
-                    print(f"  {number:>4}: {source}")
-
-        if failures:
-            print("\nCoverage gate failed:", file=sys.stderr)
-            for failure in failures:
-                print(f"  - {failure}", file=sys.stderr)
-            return 1
-
-        print("\nCoverage gate passed.")
-        return 0
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        return _report(_measure(payload["executed"]), args.show_missing)
 
 
 if __name__ == "__main__":

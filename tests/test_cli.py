@@ -11,6 +11,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -341,6 +344,56 @@ class ManifestValidationTests(unittest.TestCase):
 
         context = json.loads(self.result.read_text(encoding="utf-8"))["comparison_context"]
         self.assertEqual(context["repeats"], 1)
+
+
+class ModuleEntryPointTests(unittest.TestCase):
+    """``python -m agent_audit`` is documented in the README, so it must work.
+
+    Every other test calls ``main`` in-process, so the four-line ``__main__``
+    shim that the README tells users to run is otherwise never executed.
+    """
+
+    def _run(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "agent_audit", *arguments],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONUTF8": "1"},
+        )
+
+    def test_the_module_entry_point_runs_an_audit(self) -> None:
+        work = Path(tempfile.mkdtemp())
+        report = work / "report.md"
+        result = work / "result.json"
+
+        completed = self._run(
+            "audit",
+            "--input", str(DEMO_CSV),
+            "--report", str(report),
+            "--json", str(result),
+            "--score-min", "0",
+            "--score-max", "10",
+            "--data-provenance", "synthetic",
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            json.loads(result.read_text(encoding="utf-8"))["case_count"], 3
+        )
+        self.assertIn("效度余量", report.read_text(encoding="utf-8"))
+
+    def test_the_module_entry_point_reports_a_bad_input(self) -> None:
+        completed = self._run(
+            "audit",
+            "--input", str(ROOT / "examples" / "does_not_exist.csv"),
+            "--report", str(Path(tempfile.mkdtemp()) / "report.md"),
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("does not exist", completed.stderr)
 
 
 if __name__ == "__main__":

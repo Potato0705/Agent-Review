@@ -60,7 +60,8 @@ git tag --format='%(refname:short)|%(taggername)|%(taggeremail)'
 6. 执行 `git diff --check`，暂存后再执行 `git diff --cached --check`；
 7. 审查Author、Committer、提交Trailer和标签Tagger；
 8. 确认远端目标仓库与分支正确，再推送分支和明确的版本标签；
-9. 推送后读取远端引用并核对本地与远端提交哈希。
+9. 推送后读取远端引用并核对本地与远端提交哈希；
+10. 推送后确认远端CI在全部受支持的Python版本上通过，并记录运行编号。本地门禁与CI在解释器版本、操作系统和路径处理上都不相同，本地全绿不能替代这一步。
 
 完整发布检查可执行：
 
