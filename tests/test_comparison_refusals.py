@@ -114,6 +114,44 @@ class ComparisonRefusalTests(unittest.TestCase):
             "must be a positive integer",
         )
 
+    def test_refuses_a_different_generation_fingerprint(self) -> None:
+        self._assert_refused(
+            lambda payload: payload["comparison_context"].update(
+                generation_sha256="e" * 64
+            ),
+            "same verified scoring context",
+        )
+
+    def test_refuses_a_malformed_generation_fingerprint(self) -> None:
+        self._assert_refused(
+            lambda payload: payload["comparison_context"].update(
+                generation_sha256="not-a-hash"
+            ),
+            "is not a SHA-256 hash",
+        )
+
+    def test_accepts_a_pair_generated_from_the_same_run(self) -> None:
+        reference = copy.deepcopy(self.reference)
+        candidate = copy.deepcopy(self.candidate)
+        reference["comparison_context"]["generation_sha256"] = "f" * 64
+        candidate["comparison_context"]["generation_sha256"] = "f" * 64
+
+        result = compare_audits(reference, candidate)
+
+        self.assertEqual(result.reference_risk, "LOW")
+
+    def test_accepts_a_pair_with_no_generation_fingerprint(self) -> None:
+        """Hand-written variant sets carry no generation fingerprint."""
+
+        reference = copy.deepcopy(self.reference)
+        candidate = copy.deepcopy(self.candidate)
+        reference["comparison_context"]["generation_sha256"] = None
+        candidate["comparison_context"]["generation_sha256"] = None
+
+        result = compare_audits(reference, candidate)
+
+        self.assertEqual(result.reference_risk, "LOW")
+
     def test_refuses_an_unnamed_model(self) -> None:
         self._assert_refused(
             lambda payload: payload["comparison_context"].update(model="  "),

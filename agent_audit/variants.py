@@ -18,6 +18,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
+from .io import stable_hash
 from .models import BaselineCase
 from .segmentation import CHINESE, LanguageStrategy, split_sentences
 
@@ -406,8 +407,24 @@ def generate_variants(
                 }
             )
 
+    # Fingerprint exactly what `score` will hash when it loads the CSV, so an
+    # audit can prove the scored cases are the ones this run produced.
+    output_sha256 = stable_hash(
+        [
+            {
+                "case_id": row.case_id,
+                "variant_id": row.variant_id,
+                "variant_type": row.variant_type,
+                "text": row.text,
+                "notes": row.notes,
+            }
+            for row in rows
+        ]
+    )
+
     manifest: dict[str, Any] = {
         "generator": "agent-review",
+        "output_sha256": output_sha256,
         "language": language.name,
         "seed": seed,
         "case_count": len(cases),

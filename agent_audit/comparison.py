@@ -166,6 +166,15 @@ def _comparison_context(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
         raise ValueError("comparison_context field 'repeats' must be a positive integer.")
     _required_text(context, "model")
+    generation = context.get("generation_sha256")
+    if generation is not None and (
+        not isinstance(generation, str)
+        or len(generation) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in generation)
+    ):
+        raise ValueError(
+            "comparison_context field 'generation_sha256' is not a SHA-256 hash."
+        )
     return context
 
 
@@ -239,6 +248,13 @@ def _validate_comparable(
     for field in ("input_sha256", "rubric_sha256"):
         if str(reference_context[field]).lower() != str(candidate_context[field]).lower():
             context_mismatches.append(field)
+    reference_generation = reference_context.get("generation_sha256")
+    candidate_generation = candidate_context.get("generation_sha256")
+    if (reference_generation is None) != (candidate_generation is None) or (
+        reference_generation is not None
+        and str(reference_generation).lower() != str(candidate_generation).lower()
+    ):
+        context_mismatches.append("generation_sha256")
     for field in ("temperature", "repeats"):
         if not _same_number(reference_context[field], candidate_context[field]):
             context_mismatches.append(field)

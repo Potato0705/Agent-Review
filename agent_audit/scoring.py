@@ -18,6 +18,7 @@ from .checkpoint import (
     load_checkpoint,
     repair_checkpoint_truncated_tail,
 )
+from .io import stable_hash
 from .models import ProviderScore, ScoreRecord, ScoringCase
 
 
@@ -30,13 +31,6 @@ class ScoringRun:
     records: tuple[ScoreRecord, ...]
     traces: tuple[dict[str, object], ...]
     manifest: dict[str, object]
-
-
-def _stable_hash(value: object) -> str:
-    encoded = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def run_scoring(
@@ -96,7 +90,7 @@ def run_scoring(
             )
 
     case_payload = [asdict(case) for case in cases]
-    input_sha256 = _stable_hash(case_payload)
+    input_sha256 = stable_hash(case_payload)
     rubric_sha256 = hashlib.sha256(rubric.encode("utf-8")).hexdigest()
     checkpoint_context: dict[str, object] = {
         "system_name": system_name.strip(),

@@ -15,13 +15,14 @@ from .io import (
     load_baseline_cases,
     load_score_records,
     load_scoring_cases,
+    stable_hash,
     write_score_records,
     write_scoring_cases,
     write_text,
 )
 from .provider import OpenAICompatibleConfig, OpenAICompatibleScorer, ProviderError
 from .report import render_markdown_report
-from .scoring import _stable_hash, run_scoring, write_json, write_jsonl
+from .scoring import run_scoring, write_json, write_jsonl
 from .variants import (
     DEGRADATION_STRATEGIES,
     GAMING_STRATEGIES,
@@ -56,6 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["synthetic", "public-demo", "authorized-private", "unspecified"],
         default="unspecified",
         help="Declared origin of the evaluated data.",
+    )
+    audit_parser.add_argument(
+        "--generation-manifest",
+        help=(
+            "Generation manifest proving the scored cases are the generated "
+            "ones. Required by --variant-origin machine-generated."
+        ),
     )
     audit_parser.add_argument(
         "--variant-origin",
@@ -181,6 +189,25 @@ def run_audit(args: argparse.Namespace) -> int:
         comparison_context = _load_comparison_context(
             manifest_path, expected_record_count=len(records), config=config
         )
+
+    generation_argument = getattr(args, "generation_manifest", None)
+    if config.variant_origin == "machine-generated" and not generation_argument:
+        raise ValueError(
+            "--variant-origin machine-generated requires --generation-manifest so "
+            "the claim can be verified; use mixed if the cases were edited."
+        )
+    if generation_argument:
+        if comparison_context is None:
+            raise ValueError(
+                "--generation-manifest needs the scoring manifest as well; without "
+                "it there is no scored-input fingerprint to verify against."
+            )
+        comparison_context["generation_sha256"] = _load_generation_context(
+            Path(generation_argument),
+            scored_input_sha256=str(comparison_context["input_sha256"]),
+        )
+    elif comparison_context is not None:
+        comparison_context["generation_sha256"] = None
     report_path = write_text(args.report, render_markdown_report(result))
     print(f"Report written to: {report_path.resolve()}")
     risk_status = "provisional" if result.risk_is_provisional else "screening"
@@ -279,6 +306,85 @@ def _load_comparison_context(
         "repeats": repeats,
         "model": model.strip(),
     }
+
+
+GENERATION_IDENTITY_FIELDS = (
+    "generator",
+    "language",
+    "seed",
+    "input_sha256",
+    "gaming_strategies",
+    "degradation_strategies",
+    "paraphrase_strategies",
+)
+
+
+def _load_generation_context(
+    manifest_path: Path, *, scored_input_sha256: str
+) -> str:
+    """Prove the scored cases are exactly what the generator produced.
+
+    The generator fingerprints its output and the scorer fingerprints its
+    input. If those disagree the cases were edited after generation, so a
+    `machine-generated` label would be false and `mixed` is the honest one.
+    """
+
+    if not manifest_path.exists():
+        raise ValueError(f"Generation manifest does not exist: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Generation manifest is malformed: {manifest_path}"
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ValueError("Generation manifest must contain a JSON object.")
+
+    def validated_hash(key: str) -> str:
+        value = manifest.get(key)
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdefABCDEF" for character in value)
+        ):
+            raise ValueError(
+                f"Generation manifest field {key!r} must be a SHA-256 hash."
+            )
+        return value.lower()
+
+    output_sha256 = validated_hash("output_sha256")
+    baseline_sha256 = validated_hash("input_sha256")
+    if output_sha256 != scored_input_sha256.lower():
+        raise ValueError(
+            "The scored cases are not the ones this generation manifest "
+            "produced; they were edited after generation. Declare "
+            "--variant-origin mixed instead of machine-generated."
+        )
+
+    seed = manifest.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("Generation manifest seed must be an integer.")
+    for key in ("generator", "language"):
+        if not isinstance(manifest.get(key), str) or not manifest[key].strip():
+            raise ValueError(
+                f"Generation manifest field {key!r} must be a non-empty string."
+            )
+    for key in (
+        "gaming_strategies",
+        "degradation_strategies",
+        "paraphrase_strategies",
+    ):
+        value = manifest.get(key)
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise ValueError(
+                f"Generation manifest field {key!r} must be a list of strings."
+            )
+
+    identity = {key: manifest[key] for key in GENERATION_IDENTITY_FIELDS}
+    identity["input_sha256"] = baseline_sha256
+    return stable_hash(identity)
 
 
 def run_score(args: argparse.Namespace) -> int:
@@ -406,7 +512,7 @@ def run_generate(args: argparse.Namespace) -> int:
     manifest = {
         **run.manifest,
         "input_path": str(Path(args.input).resolve()),
-        "input_sha256": _stable_hash(
+        "input_sha256": stable_hash(
             [
                 {
                     "case_id": case.case_id,

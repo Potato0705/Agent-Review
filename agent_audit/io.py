@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import math
 from pathlib import Path
 
@@ -18,6 +20,21 @@ REQUIRED_COLUMNS = {
 ALLOWED_VARIANTS: set[str] = {"baseline", "gaming", "degradation", "paraphrase"}
 CASE_REQUIRED_COLUMNS = {"case_id", "variant_id", "variant_type", "text"}
 BASELINE_REQUIRED_COLUMNS = {"case_id", "text", "evidence_sentences"}
+
+
+def stable_hash(value: object) -> str:
+    """Hash a payload so the same content always yields the same digest.
+
+    Generation and scoring both fingerprint the case set with this, and the
+    audit proves the scored cases are the generated ones by comparing the two
+    digests. They must therefore share one definition, not two that happen to
+    agree today.
+    """
+
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def load_score_records(path: str | Path) -> list[ScoreRecord]:

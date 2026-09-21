@@ -9,6 +9,7 @@ JSON in the first place, so those refusals are exercised here.
 from __future__ import annotations
 
 import contextlib
+import csv
 import io
 import json
 import os
@@ -137,6 +138,11 @@ class MainDispatchTests(unittest.TestCase):
         self.assertIn("<!doctype html>", page.read_text(encoding="utf-8").lower())
 
     def test_audit_records_the_declared_variant_origin(self) -> None:
+        """`machine-generated` needs proof, so `mixed` is used here.
+
+        The verified path lives in GenerationProvenanceTests.
+        """
+
         result = self.work / "result.json"
 
         status = main(
@@ -145,13 +151,13 @@ class MainDispatchTests(unittest.TestCase):
                 "--input", str(DEMO_CSV),
                 "--report", str(self.work / "report.md"),
                 "--json", str(result),
-                "--variant-origin", "machine-generated",
+                "--variant-origin", "mixed",
             ]
         )
 
         self.assertEqual(status, 0)
         payload = json.loads(result.read_text(encoding="utf-8"))
-        self.assertEqual(payload["config"]["variant_origin"], "machine-generated")
+        self.assertEqual(payload["config"]["variant_origin"], "mixed")
 
     def test_audit_reports_a_bad_input_as_a_usage_error(self) -> None:
         """A malformed input must exit with a message, not a traceback."""
@@ -548,6 +554,240 @@ class GenerateCommandTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, 2)
         self.assertFalse(self.output.exists())
+
+
+class GenerationProvenanceTests(unittest.TestCase):
+    """A machine-generated claim must be provable, not merely typed.
+
+    The README invites users to hand-edit generated rows, so `machine-generated`
+    is only honest when the scored cases are byte-for-byte what the generator
+    produced. The audit proves that by matching the two fingerprints.
+    """
+
+    def setUp(self) -> None:
+        self.work = Path(tempfile.mkdtemp())
+        self.cases = self.work / "cases.csv"
+        self.generation_manifest = self.work / "cases.manifest.json"
+        main(
+            [
+                "generate",
+                "--input", str(ROOT / "examples" / "essay_baselines.csv"),
+                "--output", str(self.cases),
+            ]
+        )
+        self.scores = self.work / "scores.csv"
+        self.scoring_manifest = self.work / "scores.manifest.json"
+        self._write_scores()
+
+    def _write_scores(self) -> None:
+        """Score the generated cases without calling a model."""
+
+        from dataclasses import asdict
+
+        from agent_audit.io import load_scoring_cases, stable_hash, write_score_records
+        from agent_audit.models import ScoreRecord
+
+        cases = load_scoring_cases(self.cases)
+        records = [
+            ScoreRecord(
+                "Grader",
+                case.case_id,
+                case.variant_id,
+                case.variant_type,
+                7.0 if case.variant_type != "degradation" else 5.0,
+            )
+            for case in cases
+        ]
+        write_score_records(self.scores, records)
+        self.scoring_manifest.write_text(
+            json.dumps(
+                {
+                    "input_sha256": stable_hash([asdict(case) for case in cases]),
+                    "rubric_sha256": "b" * 64,
+                    "record_count": len(records),
+                    "repeats": 1,
+                    "temperature": 0.0,
+                    "model": "demo-model",
+                    "score_range": [0.0, 10.0],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    def _audit(self, *extra: str) -> int:
+        return main(
+            [
+                "audit",
+                "--input", str(self.scores),
+                "--report", str(self.work / "report.md"),
+                "--json", str(self.work / "result.json"),
+                "--score-min", "0",
+                "--score-max", "10",
+                *extra,
+            ]
+        )
+
+    def _result(self) -> dict[str, Any]:
+        return json.loads((self.work / "result.json").read_text(encoding="utf-8"))
+
+    def test_a_matching_pair_records_the_generation_fingerprint(self) -> None:
+        status = self._audit(
+            "--variant-origin", "machine-generated",
+            "--generation-manifest", str(self.generation_manifest),
+        )
+
+        self.assertEqual(status, 0)
+        context = self._result()["comparison_context"]
+        self.assertEqual(len(context["generation_sha256"]), 64)
+
+    def test_an_edited_case_set_is_refused(self) -> None:
+        """Exactly the hole this closes: edit a row, keep the label."""
+
+        rows = list(csv.DictReader(self.cases.open(encoding="utf-8")))
+        rows[1]["text"] = rows[1]["text"] + "人工补充的一句话。"
+        with self.cases.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        self._write_scores()
+
+        with self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(self.generation_manifest),
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_declaring_machine_generated_without_proof_is_refused(self) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            self._audit("--variant-origin", "machine-generated")
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_mixed_needs_no_generation_manifest(self) -> None:
+        """An edited set is honestly `mixed`, and that claim needs no proof."""
+
+        self.assertEqual(self._audit("--variant-origin", "mixed"), 0)
+        self.assertIsNone(self._result()["comparison_context"]["generation_sha256"])
+
+    def test_a_missing_generation_manifest_file_is_refused(self) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(self.work / "absent.json"),
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_a_malformed_generation_manifest_is_refused(self) -> None:
+        broken = self.work / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+
+        with self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(broken),
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_a_generation_manifest_without_a_fingerprint_is_refused(self) -> None:
+        manifest = json.loads(self.generation_manifest.read_text(encoding="utf-8"))
+        del manifest["output_sha256"]
+        broken = self.work / "no_fingerprint.json"
+        broken.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+        with self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(broken),
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def _refuse_with_manifest(self, payload: Any, pattern: str) -> None:
+        """Assert which refusal fired, not merely that something failed."""
+
+        broken = self.work / "broken.json"
+        broken.write_text(
+            payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(broken),
+            )
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn(pattern, stderr.getvalue())
+
+    def _mutated_manifest(self, **overrides: Any) -> dict[str, Any]:
+        manifest = json.loads(self.generation_manifest.read_text(encoding="utf-8"))
+        manifest.update(overrides)
+        return manifest
+
+    def test_a_manifest_that_is_not_an_object_is_refused(self) -> None:
+        self._refuse_with_manifest("[1, 2]", "must contain a JSON object")
+
+    def test_a_non_integer_seed_is_refused(self) -> None:
+        for value in ("0", 1.5, True, None):
+            with self.subTest(value=value):
+                self._refuse_with_manifest(
+                    self._mutated_manifest(seed=value), "seed must be an integer"
+                )
+
+    def test_an_unnamed_generator_or_language_is_refused(self) -> None:
+        for field in ("generator", "language"):
+            for value in ("  ", 7, None):
+                with self.subTest(field=field, value=value):
+                    self._refuse_with_manifest(
+                        self._mutated_manifest(**{field: value}),
+                        "must be a non-empty string",
+                    )
+
+    def test_a_malformed_strategy_list_is_refused(self) -> None:
+        for field in (
+            "gaming_strategies",
+            "degradation_strategies",
+            "paraphrase_strategies",
+        ):
+            for value in ("verbose_padding", [1], None):
+                with self.subTest(field=field, value=value):
+                    self._refuse_with_manifest(
+                        self._mutated_manifest(**{field: value}),
+                        "must be a list of strings",
+                    )
+
+    def test_verification_needs_a_scoring_manifest_to_compare_against(self) -> None:
+        self.scoring_manifest.unlink()
+
+        with self.assertRaises(SystemExit) as caught:
+            self._audit(
+                "--variant-origin", "machine-generated",
+                "--generation-manifest", str(self.generation_manifest),
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_the_fingerprint_changes_with_the_generation_seed(self) -> None:
+        first = self.work / "seeded.json"
+        main(
+            [
+                "generate",
+                "--input", str(ROOT / "examples" / "essay_baselines.csv"),
+                "--output", str(self.work / "seeded.csv"),
+                "--manifest", str(first),
+                "--seed", "9",
+            ]
+        )
+
+        baseline = json.loads(self.generation_manifest.read_text(encoding="utf-8"))
+        seeded = json.loads(first.read_text(encoding="utf-8"))
+
+        self.assertNotEqual(baseline["output_sha256"], seeded["output_sha256"])
 
 
 if __name__ == "__main__":

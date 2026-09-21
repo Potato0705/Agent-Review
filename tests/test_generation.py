@@ -13,7 +13,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_audit.io import load_scoring_cases, write_scoring_cases
+from dataclasses import asdict, replace
+
+from agent_audit.io import load_scoring_cases, stable_hash, write_scoring_cases
 from agent_audit.models import BaselineCase
 from agent_audit.segmentation import CHINESE
 from agent_audit.variants import (
@@ -141,6 +143,36 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(len(entry["inserted_text"]), 2)
         for sentence in entry["inserted_text"]:
             self.assertIn(sentence, CHINESE.padding_sentences)
+
+    def test_the_manifest_fingerprints_exactly_what_scoring_will_hash(self) -> None:
+        """The whole verification rests on these two hashes agreeing.
+
+        `score` hashes the cases it loads from the CSV. If the generator
+        fingerprinted anything else — a different field set, a different
+        serialisation — the audit could never prove the scored cases are the
+        ones it produced.
+        """
+
+        run = generate_variants(_cases(), seed=0)
+        path = Path(tempfile.mkdtemp()) / "cases.csv"
+        write_scoring_cases(path, run.rows)
+
+        scoring_payload = [asdict(case) for case in load_scoring_cases(path)]
+
+        self.assertEqual(run.manifest["output_sha256"], stable_hash(scoring_payload))
+
+    def test_editing_one_character_changes_the_fingerprint(self) -> None:
+        run = generate_variants(_cases(), seed=0)
+        edited = [
+            replace(row, text=row.text + "。") if row.variant_id == "baseline" else row
+            for row in run.rows
+        ]
+        path = Path(tempfile.mkdtemp()) / "cases.csv"
+        write_scoring_cases(path, edited)
+
+        edited_hash = stable_hash([asdict(case) for case in load_scoring_cases(path)])
+
+        self.assertNotEqual(run.manifest["output_sha256"], edited_hash)
 
     def test_the_manifest_is_json_serialisable(self) -> None:
         run = generate_variants(_cases(), seed=0)

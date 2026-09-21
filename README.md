@@ -95,14 +95,19 @@ python -m agent_audit generate `
 
 `--paraphrase connective_substitution` 可选开启等义改写，**默认关闭**：保守的关联词替换编辑距离极小，评分器几乎必然给出近似分数，掺入后会稀释违规率并把风险评低。该规则只在小句边界替换关联词，遇到没有可替换关联词的文本会直接拒绝而不是硬造一个假的等义改写。
 
-审计机器生成的变体时必须声明来源：
+审计机器生成的变体时必须声明来源，**并提供生成清单作为证据**：
 
 ```powershell
 python -m agent_audit audit `
   --input outputs/live_scores.csv `
   --report outputs/live_report.md `
-  --variant-origin machine-generated
+  --variant-origin machine-generated `
+  --generation-manifest outputs/generated_cases.manifest.json
 ```
+
+审计会比对生成清单的 `output_sha256` 与评分清单的 `input_sha256`。两者不等说明案例在生成后被手工改动过，此时 `machine-generated` 是虚假声明，命令直接报错并提示改用 `mixed`。这样标签才是可验证的事实，而不是用户打字打上去的一句话。
+
+编辑过生成结果是正常做法，只是要如实声明 `mixed`，它不需要提供清单。审计JSON会记录 `generation_sha256`，让报告能回溯到具体的生成运行；版本对比要求两侧的生成指纹一致。
 
 ## 使用真实的 OpenAI-compatible 模型评分
 
@@ -245,7 +250,7 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.10支持四条相互分离的流程：
+版本0.11支持四条相互分离的流程：
 
 1. 由带标注的基准生成作弊与内容退化变体；
 2. 调用OpenAI-compatible模型产生评分、理由和运行清单；

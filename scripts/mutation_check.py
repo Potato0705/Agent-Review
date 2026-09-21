@@ -235,6 +235,28 @@ MUTANTS: tuple[Mutant, ...] = (
         '            "未通过是确凿证据，通过不能证明系统可靠。"',
         '            "变体由工具生成。"',
     ),
+    # --- a machine-generated claim must be provable ----------------------------
+    Mutant(
+        "cli",
+        "accept scored cases the generator never produced",
+        "    if output_sha256 != scored_input_sha256.lower():",
+        "    if False:",
+    ),
+    Mutant(
+        "cli",
+        "let a machine-generated claim go unproven",
+        '    if config.variant_origin == "machine-generated" and not generation_argument:',
+        "    if False:",
+    ),
+    Mutant(
+        "comparison",
+        "compare audits from different generation runs",
+        '    if (reference_generation is None) != (candidate_generation is None) or (\n'
+        "        reference_generation is not None\n"
+        '        and str(reference_generation).lower() != str(candidate_generation).lower()\n'
+        "    ):",
+        "    if False:",
+    ),
     # --- generated variants must match their own label ------------------------
     Mutant(
         "variants",

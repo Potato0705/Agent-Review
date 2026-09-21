@@ -69,6 +69,18 @@ python -m agent_audit generate `
 
 The input marks which sentences carry the argument (`evidence_sentences`, 1-based). The tool never infers that: a missing, out-of-range, or all-covering annotation stops the run. Every variant must satisfy a machine-checkable postcondition before it is written — a gaming variant must still contain the whole baseline as a prefix, and a degradation variant must contain none of the annotated sentences while keeping the rest in order. The manifest records each intervention's size and the exact corpus sentences inserted, so a reviewer can confirm the padding really is irrelevant to that prompt.
 
+Auditing a generated set requires proof, not just a claim:
+
+```powershell
+python -m agent_audit audit `
+  --input outputs/live_scores.csv `
+  --report outputs/live_report.md `
+  --variant-origin machine-generated `
+  --generation-manifest outputs/generated_cases.manifest.json
+```
+
+The audit matches the generation manifest's `output_sha256` against the scoring manifest's `input_sha256`. If they differ, the cases were edited after generation, `machine-generated` would be false, and the command refuses and points at `mixed` instead. Editing generated rows is fine — it just has to be declared honestly.
+
 Paraphrase generation is off by default: the conservative rewrite almost always scores the same, so including it would dilute the violation rate and make a grader look safer than it is.
 
 The committed [synthetic HTML example](docs/examples/example_audit_report.html) can be downloaded and opened locally without a server or network connection.

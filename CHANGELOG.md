@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+- 生成清单记录 `output_sha256`，与 `score` 计算输入哈希的口径完全一致；
+- `audit` 增加 `--generation-manifest`，比对该哈希与评分清单的 `input_sha256`，不等即说明案例在生成后被改动，直接报错并提示改用 `mixed`；
+- `--variant-origin machine-generated` 现在**必须**提供生成清单，使该声明成为可验证的事实而不是用户打字打上去的一句话；
+- 审计JSON的 `comparison_context` 记录 `generation_sha256`，补上从审计结果回溯到生成运行的链条；
+- `compare` 要求两侧生成指纹一致，一侧有一侧无也拒绝；旧审计JSON无该字段时两侧同为空仍可比较；
+- 把 `stable_hash` 提到 `io` 模块，生成与评分共用同一份定义，而不是两份碰巧一致的实现；
+- 变异体增至39个，全部被捕获；完整测试数增至400项。
+
 ## 0.10.0
 
 - 增加 `generate` 子命令：由带标注的基准生成作弊与内容退化变体，输出直接就是 `score` 的输入格式；
