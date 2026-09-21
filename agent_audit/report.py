@@ -87,6 +87,33 @@ def _variant_origin_note(result: AuditResult) -> str:
     return labels[result.config.variant_origin]
 
 
+def _scale_headroom_notes(result: AuditResult) -> list[str]:
+    """Say when an end of the scale makes a metric unreadable.
+
+    Without this the reader sees "平均作弊收益 0.00" and concludes the grader
+    resists gaming, when in fact the baselines were already at the top and no
+    variant could have scored higher. The measurement is not wrong; it is
+    uninterpretable, and only the tool knows that.
+    """
+
+    notes: list[str] = []
+    ceiling = result.ceiling_limited_count
+    floor = result.floor_limited_count
+    if ceiling:
+        notes.append(
+            f"{ceiling}/{result.case_count} 个案例的基准分距**量表上限**不足 "
+            f"{result.config.min_degradation_drop:.2f}。对这些案例，作弊收益为零"
+            "无法与「没有上升空间」区分，该指标不可解读。"
+        )
+    if floor:
+        notes.append(
+            f"{floor}/{result.case_count} 个案例的基准分距**量表下限**不足 "
+            f"{result.config.min_degradation_drop:.2f}。对这些案例，退化降分不足"
+            "无法与「没有下降空间」区分，该指标不可解读。"
+        )
+    return notes
+
+
 def _evidence_note(result: AuditResult) -> str:
     if result.case_count < 5:
         return "**演示级**（少于5个基准案例，只能验证流程和暴露个别失败模式）"
@@ -130,6 +157,7 @@ def render_markdown_report(
         f"- 变体来源：{_variant_origin_note(result)}",
         *([f"- 改写与评分：{_model_note(models)}"] if models else []),
         f"- 证据强度：{_evidence_note(result)}",
+        *[f"- 量表余量：{note}" for note in _scale_headroom_notes(result)],
         "",
         "## 核心指标",
         "",

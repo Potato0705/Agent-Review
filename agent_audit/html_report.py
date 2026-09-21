@@ -248,6 +248,25 @@ def render_audit_html(
             f"<tbody>{''.join(rows)}</tbody></table></div></article>"
         )
 
+    headroom_notices = ""
+    if result.ceiling_limited_count:
+        headroom_notices += (
+            '<div class="notice">'
+            f"{result.ceiling_limited_count}/{result.case_count} "
+            "个案例的基准分距量表上限不足 "
+            f"{result.config.min_degradation_drop:.2f}"
+            "。对这些案例，作弊收益为零无法与「没有上升空间」区分，该指标不可解读。"
+            "</div>"
+        )
+    if result.floor_limited_count:
+        headroom_notices += (
+            '<div class="notice">'
+            f"{result.floor_limited_count}/{result.case_count} "
+            "个案例的基准分距量表下限不足 "
+            f"{result.config.min_degradation_drop:.2f}"
+            "。对这些案例，退化降分不足无法与「没有下降空间」区分，该指标不可解读。"
+            "</div>"
+        )
     model_notice = ""
     if models:
         # An exact match is refused by the audit. Same family, different
@@ -287,7 +306,7 @@ def render_audit_html(
     <p>违规率 <strong>{result.violation_rate:.1%}</strong>；不确定性覆盖 {result.uncertainty_evaluable_count}/{result.variant_count} 项变体。</p>
     <p class="meta">{escape(evidence_description)} 数据来源：{escape(_provenance_text(result.config.data_provenance))}</p>
     <p class="meta">变体来源：{escape(_variant_origin_text(result.config.variant_origin))}</p>{model_notice}
-    {provisional_notice}
+    {provisional_notice}{headroom_notices}
   </section>
   <section>
     <h2>核心指标</h2>

@@ -73,11 +73,47 @@ class AuditResult:
     weakest_degradation_drop: float | None
     mean_paraphrase_delta: float | None
     mean_validity_margin: float | None
+    ceiling_limited_count: int | None
+    floor_limited_count: int | None
     cases: tuple[CaseFinding, ...]
     config: AuditConfig
 
     def to_dict(self) -> dict[str, object]:
         return {"schema_version": 1, **asdict(self)}
+
+
+def _scale_limited_counts(
+    case_findings: list[CaseFinding], cfg: AuditConfig
+) -> tuple[int | None, int | None]:
+    """Count cases whose baseline sits too near an end of the scale.
+
+    A baseline at the top leaves a gaming variant nowhere to go, so a gain of
+    zero cannot be told apart from a grader that genuinely resists gaming. The
+    same holds at the bottom for degradation. Saying nothing would let a
+    reader take "no gaming gain" as evidence when it is an artefact.
+
+    Headroom is judged against ``min_degradation_drop``, the effect size the
+    audit already treats as meaningful. A second threshold would be one more
+    number to keep consistent, and nobody notices when two drift apart.
+    """
+
+    if cfg.score_min is None:
+        # `AuditConfig.validate` refuses one end of the scale without the
+        # other, so a missing minimum means the scale was never declared.
+        return None, None
+    assert cfg.score_max is not None
+
+    ceiling = sum(
+        1
+        for case in case_findings
+        if cfg.score_max - case.baseline_score < cfg.min_degradation_drop
+    )
+    floor = sum(
+        1
+        for case in case_findings
+        if case.baseline_score - cfg.score_min < cfg.min_degradation_drop
+    )
+    return ceiling, floor
 
 
 def _mean(values: list[float]) -> float | None:
@@ -366,6 +402,9 @@ def audit_records(
     worst_gaming_gain = max(gaming_gains) if gaming_gains else None
     weakest_degradation_drop = min(degradation_drops) if degradation_drops else None
     mean_validity_margin = _mean(validity_margins)
+    ceiling_limited_count, floor_limited_count = _scale_limited_counts(
+        case_findings, cfg
+    )
 
     return AuditResult(
         system_name=system_name,
@@ -391,6 +430,8 @@ def audit_records(
         weakest_degradation_drop=weakest_degradation_drop,
         mean_paraphrase_delta=_mean(paraphrase_deltas),
         mean_validity_margin=mean_validity_margin,
+        ceiling_limited_count=ceiling_limited_count,
+        floor_limited_count=floor_limited_count,
         cases=tuple(case_findings),
         config=cfg,
     )

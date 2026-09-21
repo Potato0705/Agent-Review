@@ -125,6 +125,37 @@ MUTANTS: tuple[Mutant, ...] = (
         "    ):",
         "    if violation_rate >= 0.5:",
     ),
+    # --- an unreadable metric must say so -------------------------------------
+    Mutant(
+        "audit",
+        "call a ceiling-bound gaming gain measurable",
+        "        if cfg.score_max - case.baseline_score < cfg.min_degradation_drop",
+        "        if False",
+    ),
+    Mutant(
+        "audit",
+        "call a floor-bound degradation drop measurable",
+        "        if case.baseline_score - cfg.score_min < cfg.min_degradation_drop",
+        "        if False",
+    ),
+    Mutant(
+        "audit",
+        "invent scale headroom when no scale was declared",
+        "    if cfg.score_min is None:",
+        "    if False:",
+    ),
+    Mutant(
+        "report",
+        "drop the ceiling warning from the delivered report",
+        "    if ceiling:",
+        "    if False:",
+    ),
+    Mutant(
+        "html_report",
+        "drop the ceiling warning from the delivered page",
+        "    if result.ceiling_limited_count:",
+        "    if False:",
+    ),
     # --- evidence grading ---------------------------------------------------
     Mutant(
         "report",
