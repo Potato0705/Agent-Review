@@ -112,6 +112,32 @@ class PublicAssetTests(unittest.TestCase):
 
         self.assertEqual(unlisted, [], "Documents are missing from docs/README.md")
 
+    def test_no_source_file_uses_crlf_endings(self) -> None:
+        """`.gitattributes` declares `eol=lf`, and the mutation gate needs it.
+
+        That gate finds its anchors by exact byte match against source it reads
+        without newline translation. A single module rewritten with Windows
+        endings makes every anchor in it miss, which reads as "anchor is stale"
+        at best and disables the mutant silently at worst. This has happened: a
+        `Path.write_text` call without `newline=` converted `html_report.py`
+        and two test modules, and the gate stopped before it ran.
+
+        CSV fixtures are excluded on purpose. `csv.writer` terminates rows with
+        CRLF per RFC 4180, so the data this project writes and reads is
+        correctly CRLF and must not be normalised.
+        """
+
+        offenders = [
+            str(path.relative_to(PROJECT_ROOT))
+            for directory in ("agent_audit", "tests", "scripts")
+            for path in sorted((PROJECT_ROOT / directory).rglob("*"))
+            if path.is_file()
+            and path.suffix in {".py", ".ps1"}
+            and b"\r\n" in path.read_bytes()
+        ]
+
+        self.assertEqual(offenders, [], "These files must use LF endings")
+
 
 if __name__ == "__main__":
     unittest.main()

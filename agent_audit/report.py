@@ -95,7 +95,23 @@ def _evidence_note(result: AuditResult) -> str:
     return "**筛查级**（仍需检查抽样代表性、置信区间与人工复核）"
 
 
-def render_markdown_report(result: AuditResult) -> str:
+def _model_note(models: dict[str, str]) -> str:
+    """Name the rewriter and the grader side by side.
+
+    An audit refuses only an exact match. A rewriter and a grader from the
+    same family at different versions cannot be told apart automatically, so
+    that judgement belongs to whoever reads the report.
+    """
+
+    return (
+        f"改写模型 `{models['paraphrase']}` / 评分模型 `{models['scoring']}`；"
+        "两者完全相同时审计会拒绝运行，但同族不同版本无法自动判别，请自行确认二者不同源。"
+    )
+
+
+def render_markdown_report(
+    result: AuditResult, *, models: dict[str, str] | None = None
+) -> str:
     risk_status = "，暂定" if result.risk_is_provisional else ""
     lines = [
         f"# {result.system_name} 可靠性审计报告",
@@ -112,6 +128,7 @@ def render_markdown_report(result: AuditResult) -> str:
         f"- 临界不确定判定：{result.uncertain_count}",
         f"- 数据来源：{_provenance_note(result)}",
         f"- 变体来源：{_variant_origin_note(result)}",
+        *([f"- 改写与评分：{_model_note(models)}"] if models else []),
         f"- 证据强度：{_evidence_note(result)}",
         "",
         "## 核心指标",

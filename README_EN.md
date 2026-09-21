@@ -26,6 +26,7 @@ A non-positive margin means that the system rewards a superficial change at leas
 
 - offline audits from scored CSV files;
 - OpenAI-compatible `/chat/completions` scoring;
+- model-drafted paraphrase candidates that only a human reviewer can admit to the case set;
 - repeated sampling with sample standard deviations and conservative 95% t intervals;
 - provisional risk labels when uncertainty is incomplete or crosses a decision threshold;
 - resumable JSONL checkpoints with strict run-context validation;
@@ -85,7 +86,23 @@ python -m agent_audit audit `
 
 The audit matches the generation manifest's `output_sha256` against the scoring manifest's `input_sha256`. If they differ, the cases were edited after generation, `machine-generated` would be false, and the command refuses and points at `mixed` instead. Editing generated rows is fine — it just has to be declared honestly.
 
-Paraphrase generation is off by default: the conservative rewrite almost always scores the same, so including it would dilute the violation rate and make a grader look safer than it is.
+Rule-based paraphrase generation is off by default: the conservative rewrite almost always scores the same, so including it would dilute the violation rate and make a grader look safer than it is.
+
+Real rewrites are a different matter. Across four live runs in this repository, paraphrases violated 7 of 17 times while gaming variants violated 0 of 17 — and the paraphrases that found those failures were whole-sentence rewrites, not swapped connectives. Only a model or a person writes at that strength, so `paraphrase` is a separate subcommand that keeps `generate` offline and deterministic:
+
+```powershell
+python -m agent_audit paraphrase `
+  --input examples/essay_baselines.csv `
+  --output outputs/paraphrase_review.csv `
+  --model YOUR_MODEL `
+  --base-url https://YOUR_PROVIDER/v1
+```
+
+It writes a review file and never touches the case set. The prompt carries the baseline and "rewrite this without changing its meaning" — no rubric, because a rewrite optimised against the criteria under test is circular, and no statement of purpose, because telling a model it is probing a grader invites adversarial rather than faithful rewriting.
+
+Checks are split in two. Empty, unchanged, baseline-echoing, and wildly out-of-band drafts are blocked. Missing numbers and changed negation counts are only listed as review notes, because as gates they rejected 2 of the 5 genuine hand-written paraphrases in this repository — a 40% false-rejection rate teaches reviewers to ignore the status column.
+
+Approved rows merge in with `generate --append --paraphrase-review`. An unrecognised `status` or a `baseline_sha256` that no longer matches its baseline stops the run and names the case. Because a human, not a postcondition, judged the rewrites equivalent, the merged set is always `mixed` — the tool does not vouch for an equivalence claim it cannot verify. The generation manifest records the drafting model, and the audit refuses outright when that model is also the grader.
 
 The committed [synthetic HTML example](docs/examples/example_audit_report.html) can be downloaded and opened locally without a server or network connection.
 

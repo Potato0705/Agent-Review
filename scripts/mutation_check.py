@@ -23,6 +23,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -270,7 +271,7 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant(
         "cli",
         "accept a mixed set as machine-generated",
-        '    if set_origin != "machine-generated":',
+        '    if declared_origin == "machine-generated" and set_origin != "machine-generated":',
         "    if False:",
     ),
     Mutant(
@@ -350,6 +351,91 @@ MUTANTS: tuple[Mutant, ...] = (
         "            if len(indices) == len(sentences):",
         "            if False:",
     ),
+    # --- a model rewrite is a draft until a human ratifies it -----------------
+    Mutant(
+        "cli",
+        "merge rewrites nobody approved",
+        '        if row.status != "approved":',
+        "        if False:",
+    ),
+    Mutant(
+        "cli",
+        "merge a rewrite drafted against a since-edited baseline",
+        "        if row.baseline_sha256 != expected[row.case_id]:",
+        "        if False:",
+    ),
+    Mutant(
+        "cli",
+        "keep a human-ratified set labelled machine-generated",
+        "        if ratified:\n"
+        '            set_origin = "mixed"',
+        "        if False:\n"
+        '            set_origin = "mixed"',
+    ),
+    Mutant(
+        "cli",
+        "re-append ratified rewrites that are already in the file",
+        "        present = {(row.case_id, row.variant_id) for row in rows}",
+        "        present = set()",
+    ),
+    Mutant(
+        "cli",
+        "let a paraphrase review bypass --append and drop the existing set",
+        '    if review_argument and not getattr(args, "append", False):',
+        "    if False:",
+    ),
+    Mutant(
+        "cli",
+        "accept a generated set declared as human-authored",
+        '    if declared_origin == "human-authored":',
+        "    if False:",
+    ),
+    Mutant(
+        "cli",
+        "grade rewrites with the model that wrote them",
+        "            and paraphrase_model.casefold() == scoring_model.casefold()",
+        "            and False",
+    ),
+    Mutant(
+        "cli",
+        "guess at the drafting model instead of refusing",
+        "    if not manifest_path.exists():\n"
+        "        raise ValueError(\n"
+        '            f"Paraphrase manifest does not exist: {manifest_path}. It names the "',
+        "    if False:\n"
+        "        raise ValueError(\n"
+        '            f"Paraphrase manifest does not exist: {manifest_path}. It names the "',
+    ),
+    Mutant(
+        "io",
+        "silently skip a misspelled review status",
+        '            if values["status"] not in REVIEW_STATUSES:',
+        "            if False:",
+    ),
+    Mutant(
+        "paraphrase",
+        "approve a draft that just echoes the baseline",
+        "    elif stripped_baseline and stripped_baseline in stripped_draft:",
+        "    elif False:",
+    ),
+    Mutant(
+        "paraphrase",
+        "approve a truncated or runaway draft",
+        "        if not MIN_LENGTH_RATIO <= ratio <= MAX_LENGTH_RATIO:",
+        "        if False:",
+    ),
+    Mutant(
+        "paraphrase",
+        "promote the number check back into a gate",
+        '        notes.append(\n            "numbers in the baseline not found in the draft: "',
+        '        blocking.append(\n            "numbers in the baseline not found in the draft: "',
+    ),
+    Mutant(
+        "paraphrase",
+        "send a draft to review without flagging its failed checks",
+        '                status="blocked" if blocking else "pending",',
+        '                status="pending",',
+    ),
     # --- untrusted input ------------------------------------------------------
     Mutant(
         "io",
@@ -364,6 +450,32 @@ MUTANTS: tuple[Mutant, ...] = (
         "                retryable = True",
     ),
 )
+
+
+RESTORE_ATTEMPTS = 5
+RESTORE_PAUSE_SECONDS = 0.2
+
+
+def write_source(path: Path, data: bytes) -> bool:
+    """Write ``data`` to ``path``, retrying, and never raising.
+
+    A real run on Windows died here with ``OSError: [Errno 22]`` while putting
+    a module back, and because the write raised inside the ``finally`` block
+    the restoration check below never ran: the process ended on a traceback
+    with a mutated module still in the working tree. That is the one outcome
+    this script must never produce, so every write goes through here and
+    reports failure as a value the caller has to handle.
+    """
+
+    for attempt in range(RESTORE_ATTEMPTS):
+        try:
+            path.write_bytes(data)
+            return True
+        except OSError:
+            if attempt + 1 == RESTORE_ATTEMPTS:
+                return False
+            time.sleep(RESTORE_PAUSE_SECONDS)
+    return False
 
 
 def _run_suite(env: dict[str, str]) -> bool:
@@ -419,31 +531,49 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     survivors: list[Mutant] = []
+    aborted = ""
     try:
         for index, mutant in enumerate(MUTANTS, start=1):
             source = originals[mutant.path].decode("utf-8")
-            mutant.path.write_bytes(
-                source.replace(mutant.original, mutant.mutated).encode("utf-8")
-            )
+            mutated = source.replace(mutant.original, mutant.mutated).encode("utf-8")
+            if not write_source(mutant.path, mutated):
+                aborted = f"could not write {mutant.path}"
+                break
             caught = not _run_suite(env)
-            mutant.path.write_bytes(originals[mutant.path])
+            if not write_source(mutant.path, originals[mutant.path]):
+                aborted = f"could not restore {mutant.path}"
+                break
             status = "caught  " if caught else "SURVIVED"
             print(f"  [{index:>2}/{len(MUTANTS)}] {status}  {mutant.module}: {mutant.label}")
             if not caught:
                 survivors.append(mutant)
     finally:
         for path, data in originals.items():
-            path.write_bytes(data)
+            write_source(path, data)
 
-    for path, data in originals.items():
-        restored = path.read_bytes()
-        if hashlib.sha256(restored).hexdigest() != hashlib.sha256(data).hexdigest():
-            print(
-                f"FATAL: {path} was not restored. Restore it from Git before "
-                "continuing.",
-                file=sys.stderr,
-            )
-            return 2
+    damaged = [
+        path
+        for path, data in originals.items()
+        if hashlib.sha256(path.read_bytes()).hexdigest()
+        != hashlib.sha256(data).hexdigest()
+    ]
+    if damaged:
+        print(
+            "FATAL: these files still hold a mutation and could be committed. "
+            "Restore them before doing anything else:",
+            file=sys.stderr,
+        )
+        for path in damaged:
+            print(f"  git checkout -- {path.relative_to(PROJECT_ROOT)}", file=sys.stderr)
+        return 2
+
+    if aborted:
+        print(
+            f"Mutation run aborted: {aborted}. Every source file was restored, "
+            "so the working tree is clean; rerun the gate.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
         f"\n{len(MUTANTS) - len(survivors)}/{len(MUTANTS)} mutants caught; "

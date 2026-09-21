@@ -118,6 +118,47 @@ python -m agent_audit generate `
 
 `--paraphrase connective_substitution` 可选开启等义改写，**默认关闭**：保守的关联词替换编辑距离极小，评分器几乎必然给出近似分数，掺入后会稀释违规率并把风险评低。该规则只在小句边界替换关联词，遇到没有可替换关联词的文本会直接拒绝而不是硬造一个假的等义改写。
 
+## 模型辅助等义改写
+
+规则改写只换连接词，编辑距离极小。真正暴露评分器失效的是**整句重写**：在已有的四轮真实运行里，等义改写违规7/17，作弊变体0/17。能自动产出那种强度改写的只有模型或人。
+
+因此 `paraphrase` 是一条**独立**子命令，不混进 `generate`（后者必须保持纯离线、确定性、零依赖）：
+
+```powershell
+python -m agent_audit paraphrase `
+  --input examples/essay_baselines.csv `
+  --output outputs/paraphrase_review.csv `
+  --model YOUR_MODEL `
+  --base-url https://YOUR_PROVIDER/v1
+```
+
+**该命令只写待审文件，绝不触碰案例集。** 提示词里只有原文和「保持含义不变地重写」，**不含评分标准**——针对被测维度优化过的改写是从侧门进来的循环论证；也不含「这是用来测试评分器的」之类的用途说明，那会诱导模型产出对抗性而非忠实的改写。
+
+待审文件并列展示基准与草稿，供逐条核对。机器检查分成两层：
+
+| 层级 | 检查 | 效果 |
+|---|---|---|
+| 硬拦 | 空、与基准完全相同、内含基准全文、长度超出 0.4–2.5 倍带 | `status=blocked`，须修改后才能批准 |
+| 提示 | 基准中出现而草稿中未找到的数字、否定词计数变化 | 只写入 `review_notes`，不影响 `status` |
+
+后两项**不做成闸门是实测决定的**：它们会拦下本仓库五个人工撰写的真·等义改写中的2个——「睡眠不足」改写成「缺乏睡眠」被判为丢失否定，「统一收纳」里的「一」被判为丢失数字。40%的误拦率会训练审阅者直接忽略 `status` 列，比没有检查更糟。
+
+审阅者把认可的行改成 `status=approved` 后合并入集：
+
+```powershell
+python -m agent_audit generate --input examples/essay_baselines.csv `
+  --output outputs/generated_cases.csv `
+  --append --paraphrase-review outputs/paraphrase_review.csv
+```
+
+合并是**失败关闭**的：`status` 出现四个允许值以外的内容即报错（静默跳过拼错的 `aproved` 会让你以为批准了5条实际入集4条）；某行的 `baseline_sha256` 与当前基准不一致即报错并指名案例（基准被编辑后，旧草稿改写的是已经不存在的文本）。命令会打印 approved / pending / blocked / rejected 四类计数。
+
+**批准行是人工批准而非工具可验证生成，因此集合一律标记为 `mixed`。** 工具不会为一个它无法验证的等义声明背书：没有任何机器检查能证明两段文本意思相同。
+
+生成清单会记下起草用的模型（取自待审文件旁的 `.manifest.json`，也可用 `--paraphrase-manifest` 指定）。**审计时若发现改写模型与评分模型完全相同，直接拒绝运行**——那等于让被测系统自己定义「什么算等义」。同族不同版本（如 gemma3 改写、gemma4 评分）无法可靠检测，报告因此并列印出两个模型名，由你判断。
+
+## 审计机器生成的变体
+
 审计机器生成的变体时必须声明来源，**并提供生成清单作为证据**：
 
 ```powershell
@@ -130,7 +171,7 @@ python -m agent_audit audit `
 
 审计会比对生成清单的 `output_sha256` 与评分清单的 `input_sha256`。两者不等说明案例在生成后被手工改动过，此时 `machine-generated` 是虚假声明，命令直接报错并提示改用 `mixed`。这样标签才是可验证的事实，而不是用户打字打上去的一句话。
 
-编辑过生成结果是正常做法，只是要如实声明 `mixed`，它不需要提供清单。审计JSON会记录 `generation_sha256`，让报告能回溯到具体的生成运行；版本对比要求两侧的生成指纹一致。
+编辑过生成结果是正常做法，只是要如实声明 `mixed`。`mixed` 不强制提供清单，但提供了仍会校验指纹，并读出其中的改写模型名做上面那道循环论证检查。审计JSON会记录 `generation_sha256`，让报告能回溯到具体的生成运行；版本对比要求两侧的生成指纹一致。
 
 ## 使用真实的 OpenAI-compatible 模型评分
 
@@ -273,12 +314,13 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.13支持四条相互分离的流程：
+版本0.14支持五条相互分离的流程：
 
 1. 由带标注的基准生成作弊与内容退化变体；
-2. 调用OpenAI-compatible模型产生评分、理由和运行清单；
-3. 对已有评分结果进行离线审计；
-4. 对两份同条件审计结果进行模型或版本回归比较。
+2. 调用模型起草等义改写，产出待人工批准的审阅文件；
+3. 调用OpenAI-compatible模型产生评分、理由和运行清单；
+4. 对已有评分结果进行离线审计；
+5. 对两份同条件审计结果进行模型或版本回归比较。
 
 这种分离可以：
 
@@ -287,13 +329,14 @@ python -m agent_audit compare `
 - 在无网络和无外部依赖的环境中复现；
 - 清晰区分模型调用和效度分析。
 
-后续版本可增加模型辅助的等义改写、Agent轨迹评测和服务端结果管理。
+后续版本可增加Agent轨迹评测和服务端结果管理。
 
 ## 目录结构
 
 ```text
 agent_audit/                核心审计与报告代码
 agent_audit/checkpoint.py   长任务检查点与安全恢复
+agent_audit/paraphrase.py   模型起草的等义改写与审阅检查
 agent_audit/html_report.py  自包含HTML审计与对比报告
 examples/                   合成示例和输入模板
 tests/                      标准库 unittest 测试

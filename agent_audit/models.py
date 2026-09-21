@@ -33,6 +33,17 @@ class BaselineCase:
 
 
 @dataclass(frozen=True)
+class ParaphraseReviewRow:
+    """One line of the file a reviewer ratifies paraphrase drafts in."""
+
+    case_id: str
+    baseline_sha256: str
+    draft_text: str
+    status: str
+    reviewer_note: str = ""
+
+
+@dataclass(frozen=True)
 class ScoreRecord:
     system_name: str
     case_id: str

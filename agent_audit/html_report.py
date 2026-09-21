@@ -193,7 +193,9 @@ def _audit_recommendations(result: AuditResult) -> list[str]:
     return recommendations
 
 
-def render_audit_html(result: AuditResult) -> str:
+def render_audit_html(
+    result: AuditResult, *, models: dict[str, str] | None = None
+) -> str:
     system = escape(result.system_name, quote=True)
     risk_label = escape(RISK_LABELS[result.risk_level])
     risk_suffix = "，暂定" if result.risk_is_provisional else ""
@@ -246,6 +248,19 @@ def render_audit_html(result: AuditResult) -> str:
             f"<tbody>{''.join(rows)}</tbody></table></div></article>"
         )
 
+    model_notice = ""
+    if models:
+        # An exact match is refused by the audit. Same family, different
+        # version cannot be told apart automatically, so say so and leave that
+        # judgement to the reader.
+        model_notice = (
+            '<p class="meta">改写模型 '
+            f'<code>{escape(models["paraphrase"])}</code>'
+            " / 评分模型 "
+            f'<code>{escape(models["scoring"])}</code>'
+            "；两者完全相同时审计会拒绝运行，但同族不同版本无法自动判别，"
+            "请自行确认二者不同源。</p>"
+        )
     recommendation_items = "".join(
         f"<li>{escape(item)}</li>" for item in _audit_recommendations(result)
     )
@@ -271,7 +286,7 @@ def render_audit_html(result: AuditResult) -> str:
     <h2>执行摘要</h2>
     <p>违规率 <strong>{result.violation_rate:.1%}</strong>；不确定性覆盖 {result.uncertainty_evaluable_count}/{result.variant_count} 项变体。</p>
     <p class="meta">{escape(evidence_description)} 数据来源：{escape(_provenance_text(result.config.data_provenance))}</p>
-    <p class="meta">变体来源：{escape(_variant_origin_text(result.config.variant_origin))}</p>
+    <p class="meta">变体来源：{escape(_variant_origin_text(result.config.variant_origin))}</p>{model_notice}
     {provisional_notice}
   </section>
   <section>

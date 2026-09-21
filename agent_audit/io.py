@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from .models import BaselineCase, ScoreRecord, ScoringCase, VariantType
+from .models import BaselineCase, ParaphraseReviewRow, ScoreRecord, ScoringCase, VariantType
 from .segmentation import CHINESE, LanguageStrategy
 
 
@@ -20,6 +20,18 @@ REQUIRED_COLUMNS = {
 ALLOWED_VARIANTS: set[str] = {"baseline", "gaming", "degradation", "paraphrase"}
 CASE_REQUIRED_COLUMNS = {"case_id", "variant_id", "variant_type", "text"}
 BASELINE_REQUIRED_COLUMNS = {"case_id", "text", "evidence_sentences"}
+REVIEW_COLUMNS = (
+    "case_id",
+    "baseline_sha256",
+    "baseline_text",
+    "draft_text",
+    "status",
+    "blocking_checks",
+    "review_notes",
+    "reviewer_note",
+)
+REVIEW_REQUIRED_COLUMNS = {"case_id", "baseline_sha256", "draft_text", "status"}
+REVIEW_STATUSES = ("pending", "blocked", "approved", "rejected")
 
 
 def stable_hash(value: object) -> str:
@@ -363,6 +375,81 @@ def write_scoring_cases(path: str | Path, rows) -> Path:
                 }
             )
     return destination
+
+
+def write_paraphrase_review(path: str | Path, drafts) -> Path:
+    """Write the file a reviewer works in, baseline and draft side by side."""
+
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(REVIEW_COLUMNS))
+        writer.writeheader()
+        for draft in drafts:
+            writer.writerow(
+                {
+                    "case_id": draft.case_id,
+                    "baseline_sha256": draft.baseline_sha256,
+                    "baseline_text": draft.baseline_text,
+                    "draft_text": draft.draft_text,
+                    "status": draft.status,
+                    "blocking_checks": "; ".join(draft.blocking_checks),
+                    "review_notes": "; ".join(draft.review_notes),
+                    "reviewer_note": "",
+                }
+            )
+    return destination
+
+
+def load_paraphrase_review(path: str | Path) -> list[ParaphraseReviewRow]:
+    """Load a reviewed file, refusing anything that could be misread."""
+
+    source = Path(path)
+    if not source.exists():
+        raise ValueError(f"Review file does not exist: {source}")
+
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            raise ValueError("Review CSV has no header row.")
+        missing = REVIEW_REQUIRED_COLUMNS.difference(reader.fieldnames)
+        if missing:
+            raise ValueError(
+                f"Review CSV is missing columns: {', '.join(sorted(missing))}"
+            )
+
+        rows: list[ParaphraseReviewRow] = []
+        for row_number, row in enumerate(reader, start=2):
+            values = {
+                key: (row.get(key) or "").strip()
+                for key in ("case_id", "baseline_sha256", "draft_text", "status")
+            }
+            empty = [key for key, value in values.items() if not value]
+            if empty:
+                raise ValueError(
+                    f"Row {row_number}: empty required values: {', '.join(empty)}."
+                )
+            # A typo such as "aproved" must not be silently skipped: the
+            # reviewer would believe a row was approved that never enters the
+            # case set.
+            if values["status"] not in REVIEW_STATUSES:
+                raise ValueError(
+                    f"Row {row_number}: status must be one of "
+                    f"{list(REVIEW_STATUSES)}; found {values['status']!r}."
+                )
+            rows.append(
+                ParaphraseReviewRow(
+                    case_id=values["case_id"],
+                    baseline_sha256=values["baseline_sha256"].lower(),
+                    draft_text=values["draft_text"],
+                    status=values["status"],
+                    reviewer_note=(row.get("reviewer_note") or "").strip(),
+                )
+            )
+
+    if not rows:
+        raise ValueError("Review CSV contains no review rows.")
+    return rows
 
 
 def write_text(path: str | Path, content: str) -> Path:

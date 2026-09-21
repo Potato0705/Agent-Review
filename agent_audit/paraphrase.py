@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Protocol
 
+from .io import stable_hash
+from .provider import ProviderError
 from .segmentation import LanguageStrategy
 
 
@@ -132,3 +135,45 @@ def build_messages(text: str, language: LanguageStrategy) -> list[dict[str, str]
         {"role": "system", "content": language.paraphrase_instruction},
         {"role": "user", "content": text},
     ]
+
+
+def draft_paraphrases(
+    cases: list[Any], rewriter: Rewriter, language: LanguageStrategy
+) -> tuple[ParaphraseDraft, ...]:
+    """Draft one paraphrase per baseline and classify each for review.
+
+    A provider failure aborts the run and names the case it died on. Nothing
+    is written, so the caller knows the whole batch must be redone rather than
+    discovering a silent gap later.
+    """
+
+    if not cases:
+        raise ValueError("At least one baseline case is required.")
+
+    drafts: list[ParaphraseDraft] = []
+    for case in cases:
+        started = perf_counter()
+        try:
+            content, _ = rewriter.complete(build_messages(case.text, language))
+        except ProviderError as exc:
+            raise ProviderError(
+                f"Paraphrase drafting failed on case {case.case_id!r}: {exc}"
+            ) from exc
+        latency = perf_counter() - started
+
+        draft_text = content.strip()
+        blocking, notes = review_checks(case.text, draft_text, language)
+        drafts.append(
+            ParaphraseDraft(
+                case_id=case.case_id,
+                baseline_sha256=stable_hash(case.text),
+                baseline_text=case.text,
+                draft_text=draft_text,
+                status="blocked" if blocking else "pending",
+                blocking_checks=blocking,
+                review_notes=notes,
+                raw_content=content,
+                latency_seconds=latency,
+            )
+        )
+    return tuple(drafts)
