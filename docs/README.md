@@ -27,6 +27,12 @@ HTML示例只使用合成数据，可通过 `scripts/build_public_demo.ps1` 确�
 
 - [中英文简历、项目与面试表述](portfolio/portfolio_summary.md)
 
+## 设计说明
+
+- [自动变体生成设计](specs/variant_generation_design.md)
+
+设计说明记录已批准、待实现或已实现功能的取舍依据，便于回溯为什么选了这条路。
+
 ## 项目治理
 
 - [质量审查门](governance/quality_gates.md)
