@@ -79,6 +79,8 @@ CHINESE = LanguageStrategy(
         "任何人都会同意这一点。",
         "事实本来就应该如此。",
     ),
+    # Sources and targets are disjoint on purpose: if a target were also a
+    # source, a later pair would undo an earlier substitution.
     connectives=(
         ("因此", "所以"),
         ("此外", "另外"),
@@ -86,5 +88,12 @@ CHINESE = LanguageStrategy(
         ("例如", "比如"),
         ("虽然", "尽管"),
         ("而且", "并且"),
+        ("因为", "由于"),
+        ("不过", "然而"),
+        ("首先", "第一"),
+        ("其次", "第二"),
+        ("总之", "综上"),
+        # 但是 is listed before 但 so the longer form wins the match.
+        ("但", "然而"),
     ),
 )

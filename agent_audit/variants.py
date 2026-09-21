@@ -182,16 +182,50 @@ def _unsupported_assertion(
     )
 
 
+CLAUSE_BOUNDARIES = "，,。！？；!?;：: \t\n"
+
+
+def _substitute_at_clause_boundaries(
+    text: str, connectives: tuple[tuple[str, str], ...]
+) -> tuple[str, int]:
+    """Replace connectives only where a clause actually begins.
+
+    A plain ``str.replace`` is unsafe in Chinese because words overlap: in
+    「原因此外还有」 the characters 因此 span 原因 and 此外, and replacing them
+    produces text that is not Chinese. Discourse connectives introduce a
+    clause, so a match is only taken at the start of the text or straight
+    after a clause boundary.
+    """
+
+    pieces: list[str] = []
+    index = 0
+    replaced = 0
+    length = len(text)
+    while index < length:
+        at_boundary = index == 0 or text[index - 1] in CLAUSE_BOUNDARIES
+        match = None
+        if at_boundary:
+            for source, target in connectives:
+                if text.startswith(source, index):
+                    match = (source, target)
+                    break
+        if match is None:
+            pieces.append(text[index])
+            index += 1
+            continue
+        source, target = match
+        pieces.append(target)
+        index += len(source)
+        replaced += 1
+    return "".join(pieces), replaced
+
+
 def _connective_substitution(
     case: BaselineCase, language: LanguageStrategy, rng: random.Random
 ) -> GeneratedVariant:
-    produced = case.text
-    replaced = 0
-    for source, target in language.connectives:
-        occurrences = produced.count(source)
-        if occurrences:
-            produced = produced.replace(source, target)
-            replaced += occurrences
+    produced, replaced = _substitute_at_clause_boundaries(
+        case.text, language.connectives
+    )
     if not replaced or produced == case.text:
         raise VariantPostconditionError(
             "connective_substitution found no connective to replace; this text "

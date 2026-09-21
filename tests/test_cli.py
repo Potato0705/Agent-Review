@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_audit.cli import build_parser, main
+from agent_audit.io import load_scoring_cases
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO_CSV = ROOT / "examples" / "demo_scores.csv"
@@ -423,6 +424,130 @@ class ModuleEntryPointTests(unittest.TestCase):
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("does not exist", completed.stderr)
+
+
+class GenerateCommandTests(unittest.TestCase):
+    BASELINES = ROOT / "examples" / "essay_baselines.csv"
+
+    def setUp(self) -> None:
+        self.work = Path(tempfile.mkdtemp())
+        self.output = self.work / "cases.csv"
+
+    def _run(self, *extra: str) -> int:
+        return main(
+            [
+                "generate",
+                "--input", str(self.BASELINES),
+                "--output", str(self.output),
+                *extra,
+            ]
+        )
+
+    def test_parser_defaults_cover_both_required_families(self) -> None:
+        args = build_parser().parse_args(
+            ["generate", "--input", "a.csv", "--output", "b.csv"]
+        )
+
+        self.assertEqual(args.gaming, "verbose_padding,rubric_flattery")
+        self.assertEqual(args.degradation, "remove_evidence,unsupported_assertion")
+        self.assertIsNone(args.paraphrase)
+        self.assertEqual(args.seed, 0)
+
+    def test_generates_a_csv_the_scoring_loader_accepts(self) -> None:
+        self.assertEqual(self._run(), 0)
+
+        cases = load_scoring_cases(self.output)
+        self.assertEqual(len(cases), 25)
+        self.assertEqual(len({case.case_id for case in cases}), 5)
+
+    def test_writes_a_manifest_next_to_the_output_by_default(self) -> None:
+        self._run()
+
+        manifest_path = self.output.with_suffix(".manifest.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertTrue(manifest["requires_human_review"])
+        self.assertEqual(manifest["row_count"], 25)
+        self.assertEqual(manifest["input_sha256"], manifest["input_sha256"].lower())
+        self.assertEqual(len(manifest["input_sha256"]), 64)
+
+    def test_the_manifest_path_can_be_named(self) -> None:
+        target = self.work / "named.json"
+
+        self._run("--manifest", str(target))
+
+        self.assertTrue(target.exists())
+
+    def test_the_same_seed_reproduces_the_output_byte_for_byte(self) -> None:
+        self._run("--seed", "5")
+        first = self.output.read_bytes()
+        self.output.unlink()
+        self._run("--seed", "5")
+
+        self.assertEqual(self.output.read_bytes(), first)
+
+    def test_paraphrase_is_not_generated_by_default(self) -> None:
+        self._run()
+
+        cases = load_scoring_cases(self.output)
+
+        self.assertNotIn("paraphrase", {case.variant_type for case in cases})
+
+    def test_paraphrase_is_generated_when_the_text_allows_it(self) -> None:
+        source = self.work / "baselines.csv"
+        source.write_text(
+            "case_id,text,evidence_sentences,notes\n"
+            "c1,学校应推迟上课。一项调查显示睡眠充足更稳。因此可以先试行。,2,\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        status = main(
+            [
+                "generate",
+                "--input", str(source),
+                "--output", str(self.output),
+                "--paraphrase", "connective_substitution",
+            ]
+        )
+
+        self.assertEqual(status, 0)
+        cases = load_scoring_cases(self.output)
+        self.assertIn("paraphrase", {case.variant_type for case in cases})
+
+    def test_a_baseline_with_no_listed_connective_refuses_and_names_itself(self) -> None:
+        """The conservative rewrite cannot handle every text, and says which."""
+
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--paraphrase", "connective_substitution")
+
+        self.assertEqual(caught.exception.code, 2)
+        self.assertFalse(self.output.exists())
+
+    def test_an_unknown_strategy_is_a_usage_error(self) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            self._run("--gaming", "keyword_stuffing")
+
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_an_unannotated_baseline_is_a_usage_error(self) -> None:
+        source = self.work / "baselines.csv"
+        source.write_text(
+            "case_id,text,evidence_sentences,notes\nc1,甲。乙。,,\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            main(
+                [
+                    "generate",
+                    "--input", str(source),
+                    "--output", str(self.output),
+                ]
+            )
+
+        self.assertEqual(caught.exception.code, 2)
+        self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":

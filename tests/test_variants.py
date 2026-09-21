@@ -16,6 +16,7 @@ from agent_audit.models import BaselineCase
 from agent_audit.segmentation import CHINESE, split_sentences
 from agent_audit.variants import (
     _assert_evidence_removed,
+    _substitute_at_clause_boundaries,
     _kept_sentences,
     GAMING_STRATEGIES,
     DEGRADATION_STRATEGIES,
@@ -141,6 +142,46 @@ class ParaphraseStrategyTests(unittest.TestCase):
 
         with self.assertRaisesRegex(VariantPostconditionError, "no connective"):
             build_variant(case, "connective_substitution", CHINESE, random.Random(0))
+
+
+class ClauseBoundarySubstitutionTests(unittest.TestCase):
+    """Chinese words overlap, so a plain replace corrupts text."""
+
+    def _sub(self, text: str):
+        return _substitute_at_clause_boundaries(text, CHINESE.connectives)
+
+    def test_leaves_a_connective_that_spans_two_words_alone(self) -> None:
+        # 原因此外 is 原因 + 此外; a naive replace of 因此 would produce 原所以外.
+        text = "原因此外还有别的理由。"
+
+        self.assertEqual(self._sub(text), (text, 0))
+
+    def test_replaces_a_connective_at_the_start_of_the_text(self) -> None:
+        self.assertEqual(
+            self._sub("因此可以先试行。"), ("所以可以先试行。", 1)
+        )
+
+    def test_replaces_a_connective_after_a_comma(self) -> None:
+        self.assertEqual(
+            self._sub("城市应增设，因为载客量高。"),
+            ("城市应增设，由于载客量高。", 1),
+        )
+
+    def test_replaces_a_connective_after_a_full_stop(self) -> None:
+        self.assertEqual(
+            self._sub("甲。但是乙。"), ("甲。然而乙。", 1)
+        )
+
+    def test_counts_every_replacement(self) -> None:
+        self.assertEqual(self._sub("因此甲。但是乙。")[1], 2)
+
+    def test_sources_and_targets_are_disjoint(self) -> None:
+        """A target that is also a source would undo an earlier substitution."""
+
+        sources = {source for source, _ in CHINESE.connectives}
+        targets = {target for _, target in CHINESE.connectives}
+
+        self.assertEqual(sources & targets, set())
 
 
 class PostconditionTests(unittest.TestCase):

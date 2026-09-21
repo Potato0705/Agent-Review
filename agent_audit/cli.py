@@ -12,14 +12,21 @@ from .audit import AuditConfig, audit_records
 from .comparison import compare_audits, load_audit_result, render_comparison_report
 from .html_report import render_audit_html, render_comparison_html
 from .io import (
+    load_baseline_cases,
     load_score_records,
     load_scoring_cases,
     write_score_records,
+    write_scoring_cases,
     write_text,
 )
 from .provider import OpenAICompatibleConfig, OpenAICompatibleScorer, ProviderError
 from .report import render_markdown_report
-from .scoring import run_scoring, write_json, write_jsonl
+from .scoring import _stable_hash, run_scoring, write_json, write_jsonl
+from .variants import (
+    DEGRADATION_STRATEGIES,
+    GAMING_STRATEGIES,
+    generate_variants,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -113,6 +120,40 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--json", dest="json_output", help="Optional JSON result path.")
     compare_parser.add_argument(
         "--html", dest="html_output", help="Optional self-contained HTML report path."
+    )
+
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Build gaming and degradation variants from annotated baselines.",
+    )
+    generate_parser.add_argument("--input", required=True, help="Annotated baseline CSV.")
+    generate_parser.add_argument("--output", required=True, help="Output case CSV.")
+    generate_parser.add_argument(
+        "--manifest", help="Generation manifest path; defaults next to the output CSV."
+    )
+    generate_parser.add_argument(
+        "--gaming",
+        default=",".join(GAMING_STRATEGIES),
+        help=f"Comma-separated gaming strategies from {list(GAMING_STRATEGIES)}.",
+    )
+    generate_parser.add_argument(
+        "--degradation",
+        default=",".join(DEGRADATION_STRATEGIES),
+        help=(
+            "Comma-separated degradation strategies from "
+            f"{list(DEGRADATION_STRATEGIES)}."
+        ),
+    )
+    generate_parser.add_argument(
+        "--paraphrase",
+        help=(
+            "Optional paraphrase strategies. Off by default: the conservative "
+            "rewrite almost always scores the same and would dilute the "
+            "violation rate."
+        ),
+    )
+    generate_parser.add_argument(
+        "--seed", type=int, default=0, help="Seed for corpus selection."
     )
     return parser
 
@@ -340,6 +381,54 @@ def run_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _strategy_list(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def run_generate(args: argparse.Namespace) -> int:
+    cases = load_baseline_cases(args.input)
+    run = generate_variants(
+        cases,
+        seed=args.seed,
+        gaming=_strategy_list(args.gaming),
+        degradation=_strategy_list(args.degradation),
+        paraphrase=_strategy_list(getattr(args, "paraphrase", None)),
+    )
+
+    output_path = write_scoring_cases(args.output, run.rows)
+    manifest_path = (
+        Path(args.manifest)
+        if getattr(args, "manifest", None)
+        else output_path.with_suffix(".manifest.json")
+    )
+    manifest = {
+        **run.manifest,
+        "input_path": str(Path(args.input).resolve()),
+        "input_sha256": _stable_hash(
+            [
+                {
+                    "case_id": case.case_id,
+                    "text": case.text,
+                    "evidence_sentences": list(case.evidence_sentences),
+                }
+                for case in cases
+            ]
+        ),
+    }
+    write_json(manifest_path, manifest)
+
+    print(f"Cases written to: {output_path.resolve()}")
+    print(f"Manifest written to: {manifest_path.resolve()}")
+    print(
+        f"Generated {len(run.rows)} rows from {len(cases)} baselines. "
+        "Variants are machine-generated: review each one before delivery and "
+        "declare --variant-origin machine-generated when auditing."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -356,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "compare":
         try:
             return run_compare(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+    if args.command == "generate":
+        try:
+            return run_generate(args)
         except ValueError as exc:
             parser.error(str(exc))
     return 1
