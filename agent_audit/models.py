@@ -17,6 +17,22 @@ class ScoringCase:
 
 
 @dataclass(frozen=True)
+class BaselineCase:
+    """A baseline text plus the sentences a degradation variant must remove.
+
+    ``evidence_sentences`` holds 1-based indices into
+    ``segmentation.split_sentences(text)``. The generator never infers which
+    sentences carry the argument; a wrong guess would produce a variant that
+    claims to be degraded without being degraded.
+    """
+
+    case_id: str
+    text: str
+    evidence_sentences: tuple[int, ...]
+    notes: str = ""
+
+
+@dataclass(frozen=True)
 class ScoreRecord:
     system_name: str
     case_id: str

@@ -4,7 +4,8 @@ import csv
 import math
 from pathlib import Path
 
-from .models import ScoreRecord, ScoringCase, VariantType
+from .models import BaselineCase, ScoreRecord, ScoringCase, VariantType
+from .segmentation import split_sentences
 
 
 REQUIRED_COLUMNS = {
@@ -16,6 +17,7 @@ REQUIRED_COLUMNS = {
 }
 ALLOWED_VARIANTS: set[str] = {"baseline", "gaming", "degradation", "paraphrase"}
 CASE_REQUIRED_COLUMNS = {"case_id", "variant_id", "variant_type", "text"}
+BASELINE_REQUIRED_COLUMNS = {"case_id", "text", "evidence_sentences"}
 
 
 def load_score_records(path: str | Path) -> list[ScoreRecord]:
@@ -210,6 +212,92 @@ def write_score_records(path: str | Path, records: list[ScoreRecord]) -> Path:
                 }
             )
     return destination
+
+
+def _parse_evidence_indices(raw: str, row_number: int) -> tuple[int, ...]:
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if not parts:
+        raise ValueError(f"Row {row_number}: evidence_sentences must not be empty.")
+    indices: list[int] = []
+    for part in parts:
+        if not part.isdigit() or int(part) < 1:
+            raise ValueError(
+                f"Row {row_number}: evidence_sentences must be positive integers."
+            )
+        indices.append(int(part))
+    if len(set(indices)) != len(indices):
+        raise ValueError(f"Row {row_number}: duplicate evidence_sentences index.")
+    return tuple(sorted(indices))
+
+
+def load_baseline_cases(path: str | Path) -> list[BaselineCase]:
+    """Load annotated baselines, rejecting any annotation we cannot act on."""
+
+    source = Path(path)
+    if not source.exists():
+        raise ValueError(f"Input file does not exist: {source}")
+
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            raise ValueError("Input CSV has no header row.")
+        missing = BASELINE_REQUIRED_COLUMNS.difference(reader.fieldnames)
+        if missing:
+            raise ValueError(
+                f"Input CSV is missing columns: {', '.join(sorted(missing))}"
+            )
+
+        cases: list[BaselineCase] = []
+        seen: set[str] = set()
+        for row_number, row in enumerate(reader, start=2):
+            case_id = (row.get("case_id") or "").strip()
+            text = (row.get("text") or "").strip()
+            empty = [
+                name
+                for name, value in (("case_id", case_id), ("text", text))
+                if not value
+            ]
+            if empty:
+                raise ValueError(
+                    f"Row {row_number}: empty required values: {', '.join(empty)}."
+                )
+            if case_id in seen:
+                raise ValueError(f"Row {row_number}: duplicate case_id {case_id!r}.")
+            seen.add(case_id)
+
+            sentences = split_sentences(text)
+            if len(sentences) < 2:
+                raise ValueError(
+                    f"Row {row_number}: a baseline needs at least two sentences so "
+                    "that removing the evidence still leaves content."
+                )
+
+            indices = _parse_evidence_indices(
+                row.get("evidence_sentences") or "", row_number
+            )
+            if indices[-1] > len(sentences):
+                raise ValueError(
+                    f"Row {row_number}: evidence_sentences names sentence "
+                    f"{indices[-1]} but the text has only {len(sentences)} sentences."
+                )
+            if len(indices) == len(sentences):
+                raise ValueError(
+                    f"Row {row_number}: cannot annotate every sentence; the "
+                    "degradation variant would be empty."
+                )
+
+            cases.append(
+                BaselineCase(
+                    case_id=case_id,
+                    text=text,
+                    evidence_sentences=indices,
+                    notes=(row.get("notes") or "").strip(),
+                )
+            )
+
+    if not cases:
+        raise ValueError("Input CSV contains no baseline cases.")
+    return cases
 
 
 def write_text(path: str | Path, content: str) -> Path:
