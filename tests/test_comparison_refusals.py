@@ -128,6 +128,26 @@ class ComparisonRefusalTests(unittest.TestCase):
             "different data_provenance",
         )
 
+    def test_refuses_a_different_variant_origin(self) -> None:
+        self._assert_refused(
+            lambda payload: payload["config"].update(
+                variant_origin="machine-generated"
+            ),
+            "different variant_origin",
+        )
+
+    def test_accepts_a_pair_that_predates_the_origin_field(self) -> None:
+        """Older audit JSON has no field at all; absent on both sides is equal."""
+
+        reference = copy.deepcopy(self.reference)
+        candidate = copy.deepcopy(self.candidate)
+        reference["config"].pop("variant_origin", None)
+        candidate["config"].pop("variant_origin", None)
+
+        result = compare_audits(reference, candidate)
+
+        self.assertEqual(result.reference_risk, "LOW")
+
     def test_refuses_different_decision_thresholds(self) -> None:
         for field in (
             "invariance_tolerance",

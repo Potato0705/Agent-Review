@@ -252,6 +252,10 @@ def _validate_comparable(
         "data_provenance"
     ):
         raise ValueError("Audit results use different data_provenance declarations.")
+    if reference_config.get("variant_origin") != candidate_config.get(
+        "variant_origin"
+    ):
+        raise ValueError("Audit results use different variant_origin declarations.")
     for field in (
         "invariance_tolerance",
         "min_degradation_drop",
