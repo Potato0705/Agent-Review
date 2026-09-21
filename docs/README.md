@@ -30,6 +30,7 @@ HTML示例只使用合成数据，可通过 `scripts/build_public_demo.ps1` 确�
 ## 设计说明
 
 - [自动变体生成设计](specs/variant_generation_design.md)
+- [模型辅助等义改写设计](specs/model_assisted_paraphrase_design.md)
 
 设计说明记录已批准、待实现或已实现功能的取舍依据，便于回溯为什么选了这条路。
 
