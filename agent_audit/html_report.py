@@ -148,6 +148,24 @@ def _provenance_text(value: str) -> str:
     }[value]
 
 
+def _variant_origin_text(value: str) -> str:
+    return {
+        "human-authored": "变体由人工撰写。",
+        "machine-generated": (
+            "变体由工具生成，属于下限测试；"
+            "未通过是确凿证据，通过不能证明系统可靠。"
+        ),
+        "mixed": (
+            "变体由人工与工具混合产生；"
+            "工具生成的部分属于下限测试，"
+            "通过不能证明系统可靠。"
+        ),
+        "unspecified": (
+            "变体来源未声明，正式解释或交付前必须补充。"
+        ),
+    }[value]
+
+
 def _audit_recommendations(result: AuditResult) -> list[str]:
     recommendations: list[str] = []
     if result.worst_gaming_gain is not None and result.worst_gaming_gain > 0:
@@ -253,6 +271,7 @@ def render_audit_html(result: AuditResult) -> str:
     <h2>执行摘要</h2>
     <p>违规率 <strong>{result.violation_rate:.1%}</strong>；不确定性覆盖 {result.uncertainty_evaluable_count}/{result.variant_count} 项变体。</p>
     <p class="meta">{escape(evidence_description)} 数据来源：{escape(_provenance_text(result.config.data_provenance))}</p>
+    <p class="meta">变体来源：{escape(_variant_origin_text(result.config.variant_origin))}</p>
     {provisional_notice}
   </section>
   <section>

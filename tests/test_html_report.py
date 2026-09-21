@@ -41,6 +41,41 @@ def _audit_payload(system_name: str, model: str, game_score: float) -> dict[str,
     return payload
 
 
+class VariantOriginTests(unittest.TestCase):
+    RECORDS = (
+        ScoreRecord("Graded", "c1", "base", "baseline", 7.0),
+        ScoreRecord("Graded", "c1", "gaming", "gaming", 6.8),
+        ScoreRecord("Graded", "c1", "degraded", "degradation", 5.5),
+    )
+
+    def _html(self, origin: str) -> str:
+        result = audit_records(
+            list(self.RECORDS),
+            AuditConfig(score_min=0, score_max=10, variant_origin=origin),
+        )
+        return render_audit_html(result)
+
+    def test_every_origin_is_stated_in_the_page(self) -> None:
+        for origin, fragment in (
+            ("human-authored", "变体由人工撰写"),
+            ("machine-generated", "变体由工具生成"),
+            ("mixed", "人工与工具混合"),
+            ("unspecified", "变体来源未声明"),
+        ):
+            with self.subTest(origin=origin):
+                self.assertIn(fragment, self._html(origin))
+
+    def test_only_machine_generated_sets_carry_the_floor_test_warning(self) -> None:
+        for origin, expected in (
+            ("human-authored", False),
+            ("machine-generated", True),
+            ("mixed", True),
+            ("unspecified", False),
+        ):
+            with self.subTest(origin=origin):
+                self.assertEqual("下限测试" in self._html(origin), expected)
+
+
 class BorderlineBadgeTests(unittest.TestCase):
     """A borderline judgement must be visible as such in the delivered page."""
 
