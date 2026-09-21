@@ -81,6 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--raw-output",
         help="Optional JSONL trace path. May contain model-generated sensitive text.",
     )
+    score_parser.add_argument(
+        "--checkpoint",
+        help=(
+            "Optional per-sample JSONL checkpoint for crash recovery. "
+            "Contains full model replies and must be stored securely."
+        ),
+    )
+    score_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a matching existing --checkpoint without repeating saved calls.",
+    )
 
     compare_parser = subparsers.add_parser(
         "compare", help="Compare two compatible audit JSON results."
@@ -209,10 +221,20 @@ def _load_comparison_context(
 
 
 def run_score(args: argparse.Namespace) -> int:
+    checkpoint = getattr(args, "checkpoint", None)
+    resume = bool(getattr(args, "resume", False))
+    if resume and not checkpoint:
+        raise ValueError("--resume requires --checkpoint.")
     if args.repeats > 1 and not args.raw_output:
         print(
             "Warning: repeated scoring without --raw-output keeps only the first "
             "sample reason in the aggregate CSV.",
+            file=sys.stderr,
+        )
+    if checkpoint:
+        print(
+            "Warning: checkpoint files contain full model replies and must be "
+            "handled as sensitive data.",
             file=sys.stderr,
         )
     api_key = os.environ.get(args.api_key_env, "")
@@ -255,6 +277,8 @@ def run_score(args: argparse.Namespace) -> int:
         score_max=args.score_max,
         temperature=args.temperature,
         repeats=args.repeats,
+        checkpoint_path=checkpoint,
+        resume=resume,
     )
 
     output_path = write_score_records(args.output, list(scoring_run.records))
@@ -264,6 +288,12 @@ def run_score(args: argparse.Namespace) -> int:
     write_json(manifest_path, scoring_run.manifest)
     print(f"Scores written to: {output_path.resolve()}")
     print(f"Manifest written to: {manifest_path.resolve()}")
+    if checkpoint:
+        print(
+            "Checkpoint samples: "
+            f"{scoring_run.manifest['resumed_sample_count']} resumed, "
+            f"{scoring_run.manifest['new_sample_count']} new."
+        )
     if args.raw_output:
         raw_path = write_jsonl(args.raw_output, scoring_run.traces)
         print(f"Raw traces written to: {raw_path.resolve()}")

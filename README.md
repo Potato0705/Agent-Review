@@ -70,7 +70,8 @@ python -m agent_audit score `
   --score-max 10 `
   --temperature 0.2 `
   --repeats 3 `
-  --raw-output outputs/live_raw.jsonl
+  --raw-output outputs/live_raw.jsonl `
+  --checkpoint outputs/live_checkpoint.jsonl
 
 python -m agent_audit audit `
   --input outputs/live_scores.csv `
@@ -81,9 +82,31 @@ python -m agent_audit audit `
   --data-provenance public-demo
 ```
 
-评分命令会在输出CSV旁自动生成运行清单，例如 `live_scores.manifest.json`，其中保存模型、端点、参数、重复次数、输入哈希和评分标准哈希，但不保存API密钥。`--repeats 3` 会把每条输入独立评分3次，同时把调用量和费用约放大3倍。
+评分命令会在输出CSV旁自动生成运行清单，例如 `live_scores.manifest.json`，其中保存模型、端点、参数、重复次数、输入哈希、评分标准哈希、调用延迟和可用的令牌汇总，但不保存API密钥。`--repeats 3` 会把每条输入独立评分3次，同时把调用量和费用约放大3倍。
 
 `--raw-output` 是可选项。重复采样时，聚合CSV的 `notes` 只明确保留第一个样本的理由；需要复核全部理由时才启用原始JSONL，并按敏感数据存储。项目默认忽略 `outputs/` 下的所有文件，防止产物被误提交。
+
+## 长任务检查点与恢复
+
+`--checkpoint` 会在每个样本完成后同步写入JSONL。若进程、网络或供应商在长任务中断，可使用完全相同的命令并增加 `--resume`：
+
+```powershell
+python -m agent_audit score `
+  --input examples/essay_cases.csv `
+  --output outputs/live_scores.csv `
+  --rubric-file examples/essay_rubric.md `
+  --model YOUR_MODEL_NAME `
+  --base-url https://YOUR_PROVIDER/v1 `
+  --system-name "YOUR_MODEL_NAME + rubric-v1" `
+  --score-min 0 --score-max 10 `
+  --temperature 0.2 --repeats 3 `
+  --checkpoint outputs/live_checkpoint.jsonl `
+  --resume
+```
+
+恢复前会核对系统名、供应商、模型、端点、评分范围、温度、重复次数、输入哈希和评分标准哈希。新运行不会覆盖已有检查点；只有明确使用 `--resume` 才会读取它。检查点包含完整模型回复，敏感程度与 `--raw-output` 相同，应限制访问并按数据保留政策删除。不要让多个进程同时写入同一个检查点。
+
+若异常退出只留下一个没有换行符的末尾JSON片段，恢复器会在验证运行上下文和所有完整样本后修剪该片段；任何已换行的畸形记录、重复样本或上下文不匹配都会直接报错，不会静默跳过。
 
 若使用本机的OpenAI兼容服务，可以使用 `http://localhost/...` 或 `http://127.0.0.1/...`，本地端点不强制设置密钥。非本机端点必须使用HTTPS。
 
@@ -162,7 +185,7 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.4支持三条相互分离的流程：
+版本0.5支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
 2. 对已有评分结果进行离线审计。
@@ -181,6 +204,7 @@ python -m agent_audit compare `
 
 ```text
 agent_audit/                核心审计与报告代码
+agent_audit/checkpoint.py   长任务检查点与安全恢复
 examples/                   合成示例和输入模板
 tests/                      标准库 unittest 测试
 docs/service_one_pager.md   对外服务说明
