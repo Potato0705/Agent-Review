@@ -33,6 +33,46 @@ LATIN_ABBREVIATIONS = frozenset(
 
 
 @dataclass(frozen=True)
+class TrajectoryLabels:
+    """The words a rendered trajectory is labelled with.
+
+    A grader only ever sees the rendered transcript, so these labels are part
+    of the prompt. They live behind the language strategy for the same reason
+    everything else here does: adding a language must not mean editing the
+    renderer.
+    """
+
+    task: str
+    step: str
+    tool: str
+    args: str
+    result: str
+    note: str
+    answer: str
+
+
+CHINESE_TRAJECTORY_LABELS = TrajectoryLabels(
+    task="任务",
+    step="步骤",
+    tool="工具",
+    args="参数",
+    result="结果",
+    note="说明",
+    answer="最终答案",
+)
+
+ENGLISH_TRAJECTORY_LABELS = TrajectoryLabels(
+    task="Task",
+    step="Step",
+    tool="Tool",
+    args="Arguments",
+    result="Result",
+    note="Note",
+    answer="Final answer",
+)
+
+
+@dataclass(frozen=True)
 class LanguageStrategy:
     """The language-specific material the generator needs.
 
@@ -62,6 +102,8 @@ class LanguageStrategy:
     numeral_characters: str = ""
     measure_words: tuple[str, ...] = ()
     paraphrase_instruction: str = ""
+    trajectory_labels: TrajectoryLabels = CHINESE_TRAJECTORY_LABELS
+    empty_tool_result: str = "（无结果）"
 
     def split(self, text: str) -> tuple[str, ...]:
         return split_sentences(text, self)
@@ -182,6 +224,7 @@ CHINESE = LanguageStrategy(
         "让步与否定关系；改变句式与用词；不要增加或删除任何信息；"
         "不要添加说明、标题或引号。只输出改写后的文本。"
     ),
+    trajectory_labels=CHINESE_TRAJECTORY_LABELS,
 )
 
 
@@ -243,6 +286,8 @@ ENGLISH = LanguageStrategy(
         "structure and wording; add nothing and remove nothing. Do not add a "
         "preamble, a title or quotation marks. Output only the rewritten text."
     ),
+    trajectory_labels=ENGLISH_TRAJECTORY_LABELS,
+    empty_tool_result="(no result)",
 )
 
 

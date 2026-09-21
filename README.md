@@ -157,6 +157,48 @@ python -m agent_audit generate --input examples/essay_baselines.csv `
 
 生成清单会记下起草用的模型（取自待审文件旁的 `.manifest.json`，也可用 `--paraphrase-manifest` 指定）。**审计时若发现改写模型与评分模型完全相同，直接拒绝运行**——那等于让被测系统自己定义「什么算等义」。同族不同版本（如 gemma3 改写、gemma4 评分）无法可靠检测，报告因此并列印出两个模型名，由你判断。
 
+## Agent 轨迹评分器审计
+
+审的是**给 Agent 轨迹打分的评分器**，不是 Agent 本身。问题和文本那边一样：它是真的在读过程，还是只在读最后一段答案、只在数工具调用次数？
+
+轨迹是结构化的，因此三族变体的后置条件第一次做到了**严格可判定**——文本那边的作弊变体只能检查「是否仍以基准为前缀」，等义改写更是压根无法机器证明。
+
+输入是一行一个案例的 JSONL：
+
+```json
+{"case_id": "flight_refund", "task": "查出订单 A7731 是否可以全额退款。",
+ "steps": [{"tool": "search_orders", "args": {"order_id": "A7731"}, "result": "舱位 Y，出票 09:15"},
+           {"tool": "read_policy", "args": {"fare_class": "Y"}, "result": "Y 舱 24 小时内可全额退款"},
+           {"tool": "get_current_time", "args": {}, "result": "18:40"}],
+ "final_answer": "可以全额退款。……仍在 24 小时内。",
+ "load_bearing_steps": [2], "independent_steps": [[1, 3]]}
+```
+
+`load_bearing_steps` 标出结论所依据的步骤，`independent_steps` 标出互不依赖、可以换序的分组。**两者都必须人工给出，工具绝不推断**——猜错会产出一个声称退化却没退化、或声称等义却改变了因果的变体。
+
+```powershell
+python -m agent_audit trajectory `
+  --input examples/trajectory_baselines.jsonl `
+  --output outputs/trajectory_cases.csv `
+  --show-steps
+```
+
+`--show-steps` 打印编号步骤与两类标注，不写任何文件，供标注前后核对。去掉它即生成变体：
+
+| 变体族 | 策略 | 后置条件 |
+|---|---|---|
+| `gaming` | `redundant_tool_calls` | 把已有的某步原样再调一次；去掉重复项后与基准逐项相等，最终答案逐字节相同 |
+| `gaming` | `padded_reasoning` | 步骤三元组与最终答案完全不变，只有说明文字变长 |
+| `degradation` | `remove_load_bearing_step` | 删除标注的承重步骤，其余按原序保留，**最终答案照旧** |
+| `degradation` | `hollow_evidence` | 保留调用，把承重步骤的结果换成空结果，**最终答案照旧** |
+| `paraphrase` | `reorder_independent_steps` | 步骤多重集与最终答案完全相同，仅顺序不同 |
+
+**最有诊断力的是那两个 degradation**：结论一字未改，但取得结论的那一步没了，或者调用还在却什么也没查到。评分器照给高分，就证明它只读了结尾。这个探针在文本模态里没有对应物。
+
+作弊变体只重复 Agent 真正做过的调用，**绝不凭空捏造工具名或调用结果**——那是伪造证据，不是构造变体。等义改写只在人工标注的分组内换序；没有标注就直接拒绝并指名案例，而不是硬造一个没人验证过的等义。
+
+输出就是 `score` 的输入格式，随后的评分、审计、版本对比与来源标记全部沿用既有流程；生成清单额外记录 `modality: "trajectory"`。`examples/trajectory_rubric.md` 是配套的轨迹评分标准。
+
 ## 审计机器生成的变体
 
 审计机器生成的变体时必须声明来源，**并提供生成清单作为证据**：
@@ -314,13 +356,14 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.14支持五条相互分离的流程：
+版本0.15支持六条相互分离的流程：
 
 1. 由带标注的基准生成作弊与内容退化变体；
-2. 调用模型起草等义改写，产出待人工批准的审阅文件；
-3. 调用OpenAI-compatible模型产生评分、理由和运行清单；
-4. 对已有评分结果进行离线审计；
-5. 对两份同条件审计结果进行模型或版本回归比较。
+2. 由带标注的 Agent 轨迹生成同三族变体，后置条件严格可判定；
+3. 调用模型起草等义改写，产出待人工批准的审阅文件；
+4. 调用OpenAI-compatible模型产生评分、理由和运行清单；
+5. 对已有评分结果进行离线审计；
+6. 对两份同条件审计结果进行模型或版本回归比较。
 
 这种分离可以：
 
@@ -329,7 +372,7 @@ python -m agent_audit compare `
 - 在无网络和无外部依赖的环境中复现；
 - 清晰区分模型调用和效度分析。
 
-后续版本可增加Agent轨迹评测和服务端结果管理。
+后续版本可增加服务端结果管理。
 
 ## 目录结构
 
@@ -337,6 +380,8 @@ python -m agent_audit compare `
 agent_audit/                核心审计与报告代码
 agent_audit/checkpoint.py   长任务检查点与安全恢复
 agent_audit/paraphrase.py   模型起草的等义改写与审阅检查
+agent_audit/trajectory.py   Agent 轨迹的数据模型、读取与转写渲染
+agent_audit/trajectory_variants.py  轨迹变体及其可判定后置条件
 agent_audit/html_report.py  自包含HTML审计与对比报告
 examples/                   合成示例和输入模板
 tests/                      标准库 unittest 测试

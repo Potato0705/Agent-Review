@@ -265,7 +265,7 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant(
         "cli",
         "overwrite an existing case file and its hand edits",
-        '    if output_path.exists() and not getattr(args, "append", False):',
+        "    if output_path.exists() and not append:",
         "    if False:",
     ),
     Mutant(
@@ -435,6 +435,99 @@ MUTANTS: tuple[Mutant, ...] = (
         "send a draft to review without flagging its failed checks",
         '                status="blocked" if blocking else "pending",',
         '                status="pending",',
+    ),
+    # --- trajectory variants must match their own label -----------------------
+    Mutant(
+        "trajectory_variants",
+        "let a gaming variant invent a call the agent never made",
+        "        if identity not in allowed:",
+        "        if False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "let a gaming variant rewrite the final answer",
+        "    if produced.final_answer != baseline.final_answer:\n"
+        "        raise TrajectoryPostconditionError(\n"
+        '            "redundant_tool_calls must leave the final answer untouched."',
+        "    if False:\n"
+        "        raise TrajectoryPostconditionError(\n"
+        '            "redundant_tool_calls must leave the final answer untouched."',
+    ),
+    Mutant(
+        "trajectory_variants",
+        "let padding change what the agent actually did",
+        "    if _identities(produced.steps) != _identities(baseline.steps):",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "drop the final answer from a degradation variant",
+        "    if produced.final_answer != baseline.final_answer:\n"
+        "        raise TrajectoryPostconditionError(\n"
+        '            "remove_load_bearing_step must keep the final answer: changing the "',
+        "    if False:\n"
+        "        raise TrajectoryPostconditionError(\n"
+        '            "remove_load_bearing_step must keep the final answer: changing the "',
+    ),
+    Mutant(
+        "trajectory_variants",
+        "keep the remaining steps in any order at all",
+        "    if _identities(produced.steps) != _identities(tuple(kept)):",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "hollow out a step nobody annotated",
+        "        elif before.result != after.result:",
+        "        elif False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "call an already-empty result hollowed out",
+        "            if not before.result.strip():",
+        "            if False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "reorder steps the reviewer never called independent",
+        "    if not case.independent_steps:",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory_variants",
+        "ship the baseline order as a paraphrase variant",
+        "    if _identities(produced.steps) == _identities(baseline.steps):",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory",
+        "infer that unannotated steps are load-bearing",
+        "    if not indices:",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory",
+        "accept an annotation covering every step",
+        "    if len(indices) == step_count:",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory",
+        "accept a step in two independent groups",
+        "        if overlap:",
+        "        if False:",
+    ),
+    Mutant(
+        "trajectory",
+        "accept an out-of-range load-bearing index",
+        "    if any(index < 1 or index > step_count for index in indices):",
+        "    if False:",
+    ),
+    Mutant(
+        "trajectory",
+        "serialise call arguments in whatever order they arrived",
+        "        return json.dumps(raw, ensure_ascii=False, sort_keys=True)",
+        "        return json.dumps(raw, ensure_ascii=False)",
     ),
     # --- untrusted input ------------------------------------------------------
     Mutant(

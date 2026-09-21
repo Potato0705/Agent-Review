@@ -27,6 +27,7 @@ A non-positive margin means that the system rewards a superficial change at leas
 - offline audits from scored CSV files;
 - OpenAI-compatible `/chat/completions` scoring;
 - model-drafted paraphrase candidates that only a human reviewer can admit to the case set;
+- agent-trajectory variants whose postconditions are exactly decidable;
 - repeated sampling with sample standard deviations and conservative 95% t intervals;
 - provisional risk labels when uncertainty is incomplete or crosses a decision threshold;
 - resumable JSONL checkpoints with strict run-context validation;
@@ -103,6 +104,42 @@ It writes a review file and never touches the case set. The prompt carries the b
 Checks are split in two. Empty, unchanged, baseline-echoing, and wildly out-of-band drafts are blocked. Missing numbers and changed negation counts are only listed as review notes, because as gates they rejected 2 of the 5 genuine hand-written paraphrases in this repository — a 40% false-rejection rate teaches reviewers to ignore the status column.
 
 Approved rows merge in with `generate --append --paraphrase-review`. An unrecognised `status` or a `baseline_sha256` that no longer matches its baseline stops the run and names the case. Because a human, not a postcondition, judged the rewrites equivalent, the merged set is always `mixed` — the tool does not vouch for an equivalence claim it cannot verify. The generation manifest records the drafting model, and the audit refuses outright when that model is also the grader.
+
+### Auditing a grader that scores agent runs
+
+What is audited is the grader, not the agent. The question is the same one in a
+new modality: is it reading the process, or only the last paragraph?
+
+Trajectories are structured, so for the first time all three variant families
+have exactly decidable postconditions. Prose can only check a gaming variant
+loosely ("the baseline is still a prefix") and cannot check equivalence at all.
+
+```powershell
+python -m agent_audit trajectory `
+  --input examples/trajectory_baselines.jsonl `
+  --output outputs/trajectory_cases.csv `
+  --show-steps
+```
+
+The input is one JSON object per line: the task, the ordered steps
+(`tool` / `args` / `result`), the final answer, and two annotations. A person
+marks which steps the answer rests on (`load_bearing_steps`) and which steps
+may be reordered without changing what happened (`independent_steps`). The
+tool never infers either: guessing wrong produces a variant that claims to be
+a degradation without degrading anything, or an "equivalent" run whose causal
+chain quietly broke. `--show-steps` prints the numbered steps and both
+annotations without writing a file.
+
+Gaming variants repeat calls the agent really made, or narrate every step at
+length; they never invent a tool or make up a result, which would be planting
+evidence rather than building a variant. Degradation variants delete the
+load-bearing step, or keep the call and take away what it returned — and both
+keep the final answer. That is the sharpest probe in this modality: same
+conclusion, no longer supported. Paraphrase reorders only the groups a
+reviewer declared independent, and refuses by name when none were declared.
+
+The output is ordinary `score` input, so scoring, auditing, comparison and
+origin declarations are unchanged; the manifest adds `modality: "trajectory"`.
 
 The committed [synthetic HTML example](docs/examples/example_audit_report.html) can be downloaded and opened locally without a server or network connection.
 

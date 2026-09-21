@@ -28,9 +28,17 @@ from .report import render_markdown_report
 from .scoring import run_scoring, write_json, write_jsonl
 from .paraphrase import draft_paraphrases
 from .segmentation import LANGUAGES
+from .trajectory import load_trajectory_cases
+from .trajectory_variants import (
+    DEGRADATION_STRATEGIES as TRAJECTORY_DEGRADATION,
+    GAMING_STRATEGIES as TRAJECTORY_GAMING,
+    TrajectoryPostconditionError,
+    generate_trajectory_variants,
+)
 from .variants import (
     DEGRADATION_STRATEGIES,
     GAMING_STRATEGIES,
+    GeneratedRow,
     generate_variants,
     merge_into_existing,
 )
@@ -229,6 +237,66 @@ def build_parser() -> argparse.ArgumentParser:
     paraphrase_parser.add_argument("--max-retries", type=int, default=2)
     paraphrase_parser.add_argument(
         "--manifest", help="Run manifest path; defaults next to the review CSV."
+    )
+
+    trajectory_parser = subparsers.add_parser(
+        "trajectory",
+        help="Generate variants of annotated agent trajectories.",
+    )
+    trajectory_parser.add_argument(
+        "--input", required=True, help="Annotated trajectory JSONL."
+    )
+    trajectory_parser.add_argument(
+        "--output", required=True, help="Scoring case CSV to write."
+    )
+    trajectory_parser.add_argument(
+        "--gaming",
+        default=",".join(TRAJECTORY_GAMING),
+        help=f"Comma-separated gaming strategies from {list(TRAJECTORY_GAMING)}.",
+    )
+    trajectory_parser.add_argument(
+        "--degradation",
+        default=",".join(TRAJECTORY_DEGRADATION),
+        help=(
+            "Comma-separated degradation strategies from "
+            f"{list(TRAJECTORY_DEGRADATION)}."
+        ),
+    )
+    trajectory_parser.add_argument(
+        "--paraphrase",
+        help=(
+            "Optional paraphrase strategies. Off by default so a run without "
+            "annotated independent steps is not refused for a variant family "
+            "nobody asked for."
+        ),
+    )
+    trajectory_parser.add_argument(
+        "--seed", type=int, default=0, help="Seed for choosing repeated calls."
+    )
+    trajectory_parser.add_argument(
+        "--language",
+        choices=sorted(LANGUAGES),
+        default="chinese",
+        help="Transcript labels and padding language. Never auto-detected.",
+    )
+    trajectory_parser.add_argument(
+        "--show-steps",
+        action="store_true",
+        help=(
+            "Print the numbered steps and annotations for each trajectory and "
+            "stop, so annotations can be checked against what the tool sees."
+        ),
+    )
+    trajectory_parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Merge into an existing case file: keep every row already there, "
+            "including hand edits, and add only the missing ones."
+        ),
+    )
+    trajectory_parser.add_argument(
+        "--manifest", help="Run manifest path; defaults next to the output CSV."
     )
     return parser
 
@@ -607,6 +675,22 @@ def run_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refuse_to_overwrite_cases(output_path: Path, append: bool) -> None:
+    """A case file carries hand edits, so it is never silently replaced.
+
+    Both generators share this guard. Two copies of the same refusal drift,
+    and a refusal that drifts is one that stops refusing in one of the two
+    places without anyone noticing.
+    """
+
+    if output_path.exists() and not append:
+        raise ValueError(
+            f"Case file already exists: {output_path}. Hand edits live in this "
+            "file, so it is never overwritten; use --append to merge or choose "
+            "a new path."
+        )
+
+
 def _strategy_list(raw: str | None) -> tuple[str, ...]:
     if not raw:
         return ()
@@ -624,12 +708,7 @@ def run_generate(args: argparse.Namespace) -> int:
         return 0
 
     output_path = Path(args.output)
-    if output_path.exists() and not getattr(args, "append", False):
-        raise ValueError(
-            f"Case file already exists: {output_path}. Hand edits live in this "
-            "file, so it is never overwritten; use --append to merge or choose "
-            "a new path."
-        )
+    _refuse_to_overwrite_cases(output_path, getattr(args, "append", False))
     cases = load_baseline_cases(args.input, language=language)
     run = generate_variants(
         cases,
@@ -757,6 +836,135 @@ def run_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_trajectory(args: argparse.Namespace) -> int:
+    language = LANGUAGES[getattr(args, "language", "chinese")]
+    cases = load_trajectory_cases(args.input)
+
+    if getattr(args, "show_steps", False):
+        for case in cases:
+            print(f"[{case.case_id}] {language.name}")
+            for step in case.steps:
+                print(f"  {step.index}. {step.tool} {step.args} -> {step.result}")
+            print(
+                "  load-bearing: "
+                + ", ".join(str(index) for index in case.load_bearing_steps)
+            )
+            groups = case.independent_steps
+            print(
+                "  independent: "
+                + (
+                    "; ".join(
+                        ", ".join(str(index) for index in group) for group in groups
+                    )
+                    if groups
+                    else "none"
+                )
+            )
+        return 0
+
+    output_path = Path(args.output)
+    _refuse_to_overwrite_cases(output_path, getattr(args, "append", False))
+
+    run = generate_trajectory_variants(
+        cases,
+        gaming=_strategy_list(args.gaming),
+        degradation=_strategy_list(args.degradation),
+        paraphrase=_strategy_list(getattr(args, "paraphrase", None)),
+        language=language,
+        seed=args.seed,
+    )
+    generated = tuple(
+        GeneratedRow(
+            case_id=row.case_id,
+            variant_id=row.variant_id,
+            variant_type=row.variant_type,
+            text=row.text,
+            notes=row.notes,
+        )
+        for row in run.rows
+    )
+
+    rows = generated
+    merge_summary: dict[str, Any] = {
+        "appended": [],
+        "preserved": [[row.case_id, row.variant_id] for row in rows],
+        "edited": [],
+        "foreign": [],
+    }
+    set_origin = "machine-generated"
+    if getattr(args, "append", False):
+        if not output_path.exists():
+            raise ValueError(
+                f"--append needs an existing case file, but {output_path} does not "
+                "exist. Run without --append to create it."
+            )
+        outcome = merge_into_existing(generated, load_scoring_cases(output_path))
+        rows = outcome.rows
+        set_origin = outcome.set_origin
+        merge_summary = {
+            "appended": [list(item) for item in outcome.appended],
+            "preserved": [list(item) for item in outcome.preserved],
+            "edited": [list(item) for item in outcome.edited],
+            "foreign": [list(item) for item in outcome.foreign],
+        }
+
+    output_path = write_scoring_cases(output_path, rows)
+    manifest_path = (
+        Path(args.manifest)
+        if getattr(args, "manifest", None)
+        else output_path.with_suffix(".manifest.json")
+    )
+    manifest = {
+        **run.manifest,
+        "output_sha256": stable_hash(
+            [
+                {
+                    "case_id": row.case_id,
+                    "variant_id": row.variant_id,
+                    "variant_type": row.variant_type,
+                    "text": row.text,
+                    "notes": row.notes,
+                }
+                for row in rows
+            ]
+        ),
+        "row_count": len(rows),
+        "set_origin": set_origin,
+        "merge": merge_summary,
+        "input_path": str(Path(args.input).resolve()),
+        "input_sha256": stable_hash(
+            [
+                {
+                    "case_id": case.case_id,
+                    "task": case.task,
+                    "steps": [list(step.identity) for step in case.steps],
+                    "final_answer": case.final_answer,
+                    "load_bearing_steps": list(case.load_bearing_steps),
+                    "independent_steps": [list(g) for g in case.independent_steps],
+                }
+                for case in cases
+            ]
+        ),
+    }
+    write_json(manifest_path, manifest)
+
+    print(f"Cases written to: {output_path.resolve()}")
+    print(f"Manifest written to: {manifest_path.resolve()}")
+    print(f"Generated {len(rows)} rows from {len(cases)} trajectories.")
+    if set_origin == "mixed":
+        print(
+            "This set contains hand-written or hand-edited rows, so it is mixed, "
+            "not machine-generated. Audit it with --variant-origin mixed.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Variants are machine-generated: review each one before delivery, "
+            "then audit with --variant-origin machine-generated and this manifest."
+        )
+    return 0
+
+
 def _paraphrase_model(review_path: Path, manifest_argument: str | None) -> str:
     """Return the model that drafted these rewrites.
 
@@ -800,8 +1008,6 @@ def _approved_paraphrase_rows(
     review_path: Path, cases: list[Any]
 ) -> tuple[list[Any], dict[str, Any]]:
     """Return approved rows, refusing any that no longer match their baseline."""
-
-    from .variants import GeneratedRow
 
     rows = load_paraphrase_review(review_path)
     counts: dict[str, int] = {status: 0 for status in ("pending", "blocked", "approved", "rejected")}
@@ -948,6 +1154,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return run_paraphrase(args)
         except (ValueError, ProviderError) as exc:
+            parser.error(str(exc))
+    if args.command == "trajectory":
+        try:
+            return run_trajectory(args)
+        except (ValueError, TrajectoryPostconditionError) as exc:
             parser.error(str(exc))
     return 1
 

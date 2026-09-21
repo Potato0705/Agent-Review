@@ -72,6 +72,8 @@ MAX_UNCOVERED_LINES = {
     "report": 1,
     "scoring": 1,
     "segmentation": 1,
+    "trajectory": 1,
+    "trajectory_variants": 1,
     "variants": 1,
 }
 
