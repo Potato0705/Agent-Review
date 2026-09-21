@@ -671,6 +671,50 @@ class AppendModeTests(unittest.TestCase):
         self.assertEqual(len(cases), len(self._rows()))
 
 
+class ShowSentencesTests(unittest.TestCase):
+    """Annotations are given by index, so the split must be inspectable."""
+
+    def test_printing_the_split_writes_no_files(self) -> None:
+        work = Path(tempfile.mkdtemp())
+        output = work / "cases.csv"
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            status = main(
+                [
+                    "generate",
+                    "--input", str(ROOT / "examples" / "essay_baselines.csv"),
+                    "--output", str(output),
+                    "--show-sentences",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertFalse(output.exists())
+        printed = stdout.getvalue()
+        self.assertIn("[school_start] chinese", printed)
+        self.assertIn("  1. ", printed)
+        self.assertIn("annotated: 2, 3", printed)
+
+    def test_the_english_split_is_printed_for_english_baselines(self) -> None:
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            main(
+                [
+                    "generate",
+                    "--input", str(ROOT / "examples" / "essay_baselines_en.csv"),
+                    "--output", str(Path(tempfile.mkdtemp()) / "cases.csv"),
+                    "--language", "english",
+                    "--show-sentences",
+                ]
+            )
+
+        printed = stdout.getvalue()
+        self.assertIn("[school_start] english", printed)
+        self.assertIn("Dr. Lin", printed)
+
+
 class GenerationProvenanceTests(unittest.TestCase):
     """A machine-generated claim must be provable, not merely typed.
 

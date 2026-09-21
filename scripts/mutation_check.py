@@ -235,6 +235,31 @@ MUTANTS: tuple[Mutant, ...] = (
         '            "未通过是确凿证据，通过不能证明系统可靠。"',
         '            "变体由工具生成。"',
     ),
+    # --- English splitting and joining ----------------------------------------
+    Mutant(
+        "segmentation",
+        "split on every period, abbreviations and decimals included",
+        "        if not _ends_a_sentence(text, index, strategy):",
+        "        if False:",
+    ),
+    Mutant(
+        "segmentation",
+        "treat an abbreviation as the end of a sentence",
+        "        if letters.lower() in language.abbreviations:",
+        "        if False:",
+    ),
+    Mutant(
+        "variants",
+        "replace a connective inside a longer English word",
+        "                if require_word_boundaries:",
+        "                if False:",
+    ),
+    Mutant(
+        "io",
+        "ignore a declared sentence count that disagrees with the splitter",
+        "                if int(declared) != len(sentences):",
+        "                if False:",
+    ),
     # --- appending must not destroy or launder hand-written work --------------
     Mutant(
         "cli",

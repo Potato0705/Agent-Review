@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 
 from .models import BaselineCase, ScoreRecord, ScoringCase, VariantType
-from .segmentation import split_sentences
+from .segmentation import CHINESE, LanguageStrategy
 
 
 REQUIRED_COLUMNS = {
@@ -247,8 +247,12 @@ def _parse_evidence_indices(raw: str, row_number: int) -> tuple[int, ...]:
     return tuple(sorted(indices))
 
 
-def load_baseline_cases(path: str | Path) -> list[BaselineCase]:
+def load_baseline_cases(
+    path: str | Path, *, language: LanguageStrategy | None = None
+) -> list[BaselineCase]:
     """Load annotated baselines, rejecting any annotation we cannot act on."""
+
+    strategy = language or CHINESE
 
     source = Path(path)
     if not source.exists():
@@ -282,7 +286,27 @@ def load_baseline_cases(path: str | Path) -> list[BaselineCase]:
                 raise ValueError(f"Row {row_number}: duplicate case_id {case_id!r}.")
             seen.add(case_id)
 
-            sentences = split_sentences(text)
+            sentences = strategy.split(text)
+            declared = (row.get("sentence_count") or "").strip()
+            if declared:
+                # The annotation is given by index, so a splitter that
+                # disagrees with the reviewer silently points every later
+                # index at the wrong sentence. This turns that into a refusal.
+                if not declared.isdigit() or int(declared) < 1:
+                    raise ValueError(
+                        f"Row {row_number}: sentence_count must be a positive integer."
+                    )
+                if int(declared) != len(sentences):
+                    numbered = "; ".join(
+                        f"{index}. {sentence.strip()}"
+                        for index, sentence in enumerate(sentences, start=1)
+                    )
+                    plural = "" if len(sentences) == 1 else "s"
+                    raise ValueError(
+                        f"Row {row_number}: sentence_count says {declared} but the "
+                        f"{strategy.name} splitter found {len(sentences)} "
+                        f"sentence{plural}: {numbered}"
+                    )
             if len(sentences) < 2:
                 raise ValueError(
                     f"Row {row_number}: a baseline needs at least two sentences so "

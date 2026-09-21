@@ -24,6 +24,7 @@ from .io import (
 from .provider import OpenAICompatibleConfig, OpenAICompatibleScorer, ProviderError
 from .report import render_markdown_report
 from .scoring import run_scoring, write_json, write_jsonl
+from .segmentation import LANGUAGES
 from .variants import (
     DEGRADATION_STRATEGIES,
     GAMING_STRATEGIES,
@@ -164,6 +165,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate_parser.add_argument(
         "--seed", type=int, default=0, help="Seed for corpus selection."
+    )
+    generate_parser.add_argument(
+        "--language",
+        choices=sorted(LANGUAGES),
+        default="chinese",
+        help="Sentence splitting and corpus language. Never auto-detected.",
+    )
+    generate_parser.add_argument(
+        "--show-sentences",
+        action="store_true",
+        help=(
+            "Print the numbered sentence split for each baseline and stop, so "
+            "annotations can be checked against what the splitter sees."
+        ),
     )
     generate_parser.add_argument(
         "--append",
@@ -514,6 +529,15 @@ def _strategy_list(raw: str | None) -> tuple[str, ...]:
 
 
 def run_generate(args: argparse.Namespace) -> int:
+    language = LANGUAGES[getattr(args, "language", "chinese")]
+    if getattr(args, "show_sentences", False):
+        for case in load_baseline_cases(args.input, language=language):
+            print(f"[{case.case_id}] {language.name}")
+            for index, sentence in enumerate(language.split(case.text), start=1):
+                print(f"  {index}. {sentence.strip()}")
+            print(f"  annotated: {', '.join(str(i) for i in case.evidence_sentences)}")
+        return 0
+
     output_path = Path(args.output)
     if output_path.exists() and not getattr(args, "append", False):
         raise ValueError(
@@ -521,13 +545,14 @@ def run_generate(args: argparse.Namespace) -> int:
             "file, so it is never overwritten; use --append to merge or choose "
             "a new path."
         )
-    cases = load_baseline_cases(args.input)
+    cases = load_baseline_cases(args.input, language=language)
     run = generate_variants(
         cases,
         seed=args.seed,
         gaming=_strategy_list(args.gaming),
         degradation=_strategy_list(args.degradation),
         paraphrase=_strategy_list(getattr(args, "paraphrase", None)),
+        language=language,
     )
 
     rows = run.rows

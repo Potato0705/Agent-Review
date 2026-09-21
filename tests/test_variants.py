@@ -214,7 +214,9 @@ class PostconditionTests(unittest.TestCase):
         kept = _kept_sentences(CASE)
 
         with self.assertRaisesRegex(VariantPostconditionError, "dropped or reordered"):
-            _assert_evidence_removed(CASE, "".join(reversed(kept)), kept, "probe")
+            _assert_evidence_removed(
+                CASE, "".join(reversed(kept)), kept, "probe", CHINESE
+            )
 
     def test_an_empty_annotation_cannot_produce_a_degradation(self) -> None:
         case = BaselineCase(case_id="c1", text=TEXT, evidence_sentences=())

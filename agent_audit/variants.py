@@ -20,7 +20,7 @@ from typing import Any
 
 from .io import stable_hash
 from .models import BaselineCase
-from .segmentation import CHINESE, LanguageStrategy, split_sentences
+from .segmentation import CHINESE, LanguageStrategy
 
 
 GAMING_STRATEGIES = ("verbose_padding", "rubric_flattery")
@@ -54,9 +54,13 @@ def _assert_only_added(baseline: str, produced: str, strategy: str) -> None:
 
 
 def _assert_evidence_removed(
-    case: BaselineCase, produced: str, kept: tuple[str, ...], strategy: str
+    case: BaselineCase,
+    produced: str,
+    kept: tuple[str, ...],
+    strategy: str,
+    language: LanguageStrategy,
 ) -> None:
-    sentences = split_sentences(case.text)
+    sentences = language.split(case.text)
     for index in case.evidence_sentences:
         annotated = sentences[index - 1]
         if annotated in produced:
@@ -66,16 +70,24 @@ def _assert_evidence_removed(
             )
     remaining = produced
     for sentence in kept:
-        position = remaining.find(sentence)
+        # Compare on the trimmed sentence: the joiner normalises whitespace at
+        # the seams, and that is formatting rather than content. Order and
+        # presence are still checked exactly.
+        content = sentence.strip()
+        if not content:
+            continue
+        position = remaining.find(content)
         if position < 0:
             raise VariantPostconditionError(
                 f"{strategy} dropped or reordered a sentence it should have kept."
             )
-        remaining = remaining[position + len(sentence) :]
+        remaining = remaining[position + len(content) :]
 
 
-def _kept_sentences(case: BaselineCase) -> tuple[str, ...]:
-    sentences = split_sentences(case.text)
+def _kept_sentences(
+    case: BaselineCase, language: LanguageStrategy = CHINESE
+) -> tuple[str, ...]:
+    sentences = language.split(case.text)
     annotated = set(case.evidence_sentences)
     return tuple(
         sentence
@@ -93,7 +105,8 @@ def _verbose_padding(
             min(PADDING_SENTENCE_COUNT, len(language.padding_sentences)),
         )
     )
-    produced = case.text + "".join(chosen)
+    separator = language.sentence_separator
+    produced = case.text + "".join(separator + sentence for sentence in chosen)
     _assert_only_added(case.text, produced, "verbose_padding")
     return GeneratedVariant(
         case_id=case.case_id,
@@ -112,7 +125,7 @@ def _verbose_padding(
 def _rubric_flattery(
     case: BaselineCase, language: LanguageStrategy, rng: random.Random
 ) -> GeneratedVariant:
-    produced = case.text + language.flattery_sentence
+    produced = case.text + language.sentence_separator + language.flattery_sentence
     _assert_only_added(case.text, produced, "rubric_flattery")
     return GeneratedVariant(
         case_id=case.case_id,
@@ -131,13 +144,13 @@ def _rubric_flattery(
 def _remove_evidence(
     case: BaselineCase, language: LanguageStrategy, rng: random.Random
 ) -> GeneratedVariant:
-    kept = _kept_sentences(case)
-    produced = "".join(kept)
+    kept = _kept_sentences(case, language)
+    produced = "".join(kept).strip()
     if len(produced) >= len(case.text):
         raise VariantPostconditionError(
             "remove_evidence did not shorten the baseline."
         )
-    _assert_evidence_removed(case, produced, kept, "remove_evidence")
+    _assert_evidence_removed(case, produced, kept, "remove_evidence", language)
     removed = len(case.text) - len(produced)
     return GeneratedVariant(
         case_id=case.case_id,
@@ -156,10 +169,10 @@ def _remove_evidence(
 def _unsupported_assertion(
     case: BaselineCase, language: LanguageStrategy, rng: random.Random
 ) -> GeneratedVariant:
-    kept = _kept_sentences(case)
+    kept = _kept_sentences(case, language)
     assertion = rng.choice(list(language.unsupported_assertions))
-    produced = "".join(kept) + assertion
-    _assert_evidence_removed(case, produced, kept, "unsupported_assertion")
+    produced = "".join(kept).strip() + language.sentence_separator + assertion
+    _assert_evidence_removed(case, produced, kept, "unsupported_assertion", language)
     # An empty assertion would pass a bare `in` check, because every string
     # contains the empty string, and the variant would silently be a plain
     # deletion wearing the wrong label.
@@ -187,7 +200,10 @@ CLAUSE_BOUNDARIES = "，,。！？；!?;：: \t\n"
 
 
 def _substitute_at_clause_boundaries(
-    text: str, connectives: tuple[tuple[str, str], ...]
+    text: str,
+    connectives: tuple[tuple[str, str], ...],
+    *,
+    require_word_boundaries: bool = False,
 ) -> tuple[str, int]:
     """Replace connectives only where a clause actually begins.
 
@@ -196,6 +212,11 @@ def _substitute_at_clause_boundaries(
     produces text that is not Chinese. Discourse connectives introduce a
     clause, so a match is only taken at the start of the text or straight
     after a clause boundary.
+
+    English needs one extra rule: the match must also end at a word boundary,
+    or "final" would be replaced inside "finalise". Chinese must not use that
+    rule, because Chinese characters are alphabetic to :meth:`str.isalpha`
+    and it would reject every legitimate match.
     """
 
     pieces: list[str] = []
@@ -207,9 +228,14 @@ def _substitute_at_clause_boundaries(
         match = None
         if at_boundary:
             for source, target in connectives:
-                if text.startswith(source, index):
-                    match = (source, target)
-                    break
+                if not text.startswith(source, index):
+                    continue
+                if require_word_boundaries:
+                    following = text[index + len(source) : index + len(source) + 1]
+                    if following.isalpha():
+                        continue
+                match = (source, target)
+                break
         if match is None:
             pieces.append(text[index])
             index += 1
@@ -225,7 +251,9 @@ def _connective_substitution(
     case: BaselineCase, language: LanguageStrategy, rng: random.Random
 ) -> GeneratedVariant:
     produced, replaced = _substitute_at_clause_boundaries(
-        case.text, language.connectives
+        case.text,
+        language.connectives,
+        require_word_boundaries=language.requires_word_boundaries,
     )
     if not replaced or produced == case.text:
         raise VariantPostconditionError(
