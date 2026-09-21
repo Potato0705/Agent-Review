@@ -52,22 +52,24 @@ EXCLUDED_MODULES = frozenset({"__main__"})
 # is. A line budget says the thing we actually care about: how many executable
 # lines no test ever touches.
 #
-# Each budget is the measured count plus a two-line allowance for that
-# interpreter disagreement. Tighten a budget once the matching tests exist;
-# never raise one to turn a red run green. Budgets must hold on the lowest
-# supported interpreter, not just the one they were measured on.
+# Measured on Windows/3.12, Ubuntu/3.12 and Ubuntu/3.10: all three agree on
+# every count below, while the percentages differ by a tenth of a point. Each
+# budget is that agreed count plus one line of slack for a future interpreter.
+# Tighten a budget once the matching tests exist; never raise one to turn a red
+# run green. Budgets must hold on the lowest supported interpreter, not just
+# the one they were measured on.
 MAX_UNCOVERED_LINES = {
-    "__init__": 2,
-    "audit": 4,
-    "checkpoint": 3,
-    "cli": 9,
-    "comparison": 5,
-    "html_report": 2,
-    "io": 2,
-    "models": 2,
-    "provider": 3,
-    "report": 2,
-    "scoring": 2,
+    "__init__": 1,
+    "audit": 3,
+    "checkpoint": 2,
+    "cli": 8,
+    "comparison": 4,
+    "html_report": 1,
+    "io": 1,
+    "models": 1,
+    "provider": 2,
+    "report": 1,
+    "scoring": 1,
 }
 
 # A coarse net underneath the per-module budgets, with headroom for the same
