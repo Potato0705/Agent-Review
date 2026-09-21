@@ -122,6 +122,7 @@ class ComparisonTests(unittest.TestCase):
             candidate_path = root / "candidate.json"
             report_path = root / "comparison.md"
             json_path = root / "comparison.json"
+            html_path = root / "comparison.html"
             reference_path.write_text(
                 json.dumps(self.reference, ensure_ascii=False), encoding="utf-8"
             )
@@ -133,6 +134,7 @@ class ComparisonTests(unittest.TestCase):
                 candidate=str(candidate_path),
                 report=str(report_path),
                 json_output=str(json_path),
+                html_output=str(html_path),
             )
 
             self.assertEqual(run_compare(args), 0)
@@ -140,6 +142,10 @@ class ComparisonTests(unittest.TestCase):
             payload = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["schema_version"], 1)
             self.assertEqual(payload["regression_count"], 2)
+            self.assertIn(
+                "评分系统版本对比",
+                html_path.read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

@@ -177,6 +177,7 @@ class ProviderTests(unittest.TestCase):
             raw_path = root / "raw.jsonl"
             report_path = root / "audit.md"
             audit_json_path = root / "audit.json"
+            audit_html_path = root / "audit.html"
             cases_path.write_text(
                 "case_id,variant_id,variant_type,text,notes\n"
                 'c1,base,baseline,"SCORE=7.0",base\n'
@@ -231,6 +232,7 @@ class ProviderTests(unittest.TestCase):
                 score_max=10.0,
                 data_provenance="public-demo",
                 manifest=str(manifest_path),
+                html_output=str(audit_html_path),
             )
             self.assertEqual(run_audit(audit_args), 0)
             audit_payload = json.loads(audit_json_path.read_text(encoding="utf-8"))
@@ -241,6 +243,11 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(
                 audit_payload["comparison_context"]["input_sha256"],
                 manifest["input_sha256"],
+            )
+            self.assertTrue(
+                audit_html_path.read_text(encoding="utf-8").startswith(
+                    "<!doctype html>"
+                )
             )
 
 

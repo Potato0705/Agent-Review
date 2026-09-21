@@ -13,6 +13,7 @@ python -m agent_audit audit `
   --input examples/demo_scores.csv `
   --report outputs/review_report.md `
   --json outputs/review_result.json `
+  --html outputs/review_report.html `
   --score-min 0 `
   --score-max 10 `
   --data-provenance synthetic

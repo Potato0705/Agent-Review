@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from .audit import AuditConfig, audit_records
 from .comparison import compare_audits, load_audit_result, render_comparison_report
+from .html_report import render_audit_html, render_comparison_html
 from .io import (
     load_score_records,
     load_scoring_cases,
@@ -31,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--input", required=True, help="Input score CSV.")
     audit_parser.add_argument("--report", required=True, help="Output Markdown report.")
     audit_parser.add_argument("--json", dest="json_output", help="Optional JSON result path.")
+    audit_parser.add_argument(
+        "--html", dest="html_output", help="Optional self-contained HTML report path."
+    )
     audit_parser.add_argument(
         "--manifest",
         help="Optional scoring manifest; auto-detected next to the input CSV when present.",
@@ -101,6 +105,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--candidate", required=True, help="Candidate audit JSON.")
     compare_parser.add_argument("--report", required=True, help="Output Markdown report.")
     compare_parser.add_argument("--json", dest="json_output", help="Optional JSON result path.")
+    compare_parser.add_argument(
+        "--html", dest="html_output", help="Optional self-contained HTML report path."
+    )
     return parser
 
 
@@ -143,6 +150,10 @@ def run_audit(args: argparse.Namespace) -> int:
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         print(f"JSON written to: {json_path.resolve()}")
+    html_output = getattr(args, "html_output", None)
+    if html_output:
+        html_path = write_text(html_output, render_audit_html(result))
+        print(f"HTML written to: {html_path.resolve()}")
     return 0
 
 
@@ -313,6 +324,10 @@ def run_compare(args: argparse.Namespace) -> int:
     if args.json_output:
         json_path = write_json(args.json_output, result.to_dict())
         print(f"Comparison JSON written to: {json_path.resolve()}")
+    html_output = getattr(args, "html_output", None)
+    if html_output:
+        html_path = write_text(html_output, render_comparison_html(result))
+        print(f"Comparison HTML written to: {html_path.resolve()}")
     return 0
 
 

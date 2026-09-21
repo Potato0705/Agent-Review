@@ -28,6 +28,7 @@ python -m agent_audit audit `
   --input examples/demo_scores.csv `
   --report outputs/demo_report.md `
   --json outputs/demo_result.json `
+  --html outputs/demo_report.html `
   --score-min 0 `
   --score-max 10 `
   --data-provenance synthetic
@@ -77,6 +78,7 @@ python -m agent_audit audit `
   --input outputs/live_scores.csv `
   --report outputs/live_report.md `
   --json outputs/live_result.json `
+  --html outputs/live_report.html `
   --score-min 0 `
   --score-max 10 `
   --data-provenance public-demo
@@ -178,17 +180,20 @@ python -m agent_audit compare `
   --reference outputs/reference_audit.json `
   --candidate outputs/candidate_audit.json `
   --report outputs/version_comparison.md `
-  --json outputs/version_comparison.json
+  --json outputs/version_comparison.json `
+  --html outputs/version_comparison.html
 ```
 
 审计命令会自动读取评分CSV旁的 `.manifest.json`，也可以用 `--manifest` 显式指定，并把输入哈希、评分标准哈希、温度和重复次数写入审计JSON。比较工具会拒绝这些运行指纹，以及案例集合、变体类型、判定阈值或评分范围不一致的结果。严重度变化统一为正数表示候选系统变差、负数表示改善；任何涉及临界判定或未估计随机性的变化都会标为“暂定”。该命令用于同条件回归审查，不支持把不同数据集上的结果拼成模型排行榜。
 
+`--html` 为可选输出。生成的审计或版本对比页面把样式内嵌在单个文件中，不需要JavaScript、外部字体或网络资源，适合直接发送、归档和打印。报告对系统名、案例ID、模型回复说明等不可信文本进行HTML转义，并设置限制性内容安全策略；窄屏下详细表格保持可读宽度并允许横向滚动。
+
 ## 当前范围
 
-版本0.5支持三条相互分离的流程：
+版本0.6支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
-2. 对已有评分结果进行离线审计。
+2. 对已有评分结果进行离线审计；
 3. 对两份同条件审计结果进行模型或版本回归比较。
 
 这种分离可以：
@@ -198,13 +203,14 @@ python -m agent_audit compare `
 - 在无网络和无外部依赖的环境中复现；
 - 清晰区分模型调用和效度分析。
 
-后续版本可增加自动变体生成、Agent轨迹评测和HTML报告。
+后续版本可增加自动变体生成、Agent轨迹评测和服务端结果管理。
 
 ## 目录结构
 
 ```text
 agent_audit/                核心审计与报告代码
 agent_audit/checkpoint.py   长任务检查点与安全恢复
+agent_audit/html_report.py  自包含HTML审计与对比报告
 examples/                   合成示例和输入模板
 tests/                      标准库 unittest 测试
 docs/service_one_pager.md   对外服务说明
