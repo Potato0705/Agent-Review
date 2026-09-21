@@ -71,6 +71,7 @@ MAX_UNCOVERED_LINES = {
     "report": 1,
     "scoring": 1,
     "segmentation": 1,
+    "variants": 1,
 }
 
 # A coarse net underneath the per-module budgets, with headroom for the same
