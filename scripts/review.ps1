@@ -9,6 +9,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python -m unittest discover -s tests -v
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+python scripts/coverage_report.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 python -m agent_audit audit `
   --input examples/demo_scores.csv `
   --report outputs/review_report.md `

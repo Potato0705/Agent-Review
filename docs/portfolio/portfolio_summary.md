@@ -19,15 +19,16 @@
 - 使用输入和评分标准SHA-256、模型、端点、温度、重复次数和量表约束可比性；
 - 用逐样本JSONL检查点恢复长任务，并拒绝上下文不匹配、重复键和已终止畸形记录；
 - 对HTML不可信内容进行转义，使用限制性CSP且不加载外部脚本或资源；
-- 通过本地审查脚本和Python 3.10/3.12 CI执行编译、测试和离线演示。
+- 通过本地审查脚本和Python 3.10/3.12 CI执行编译、测试、覆盖率棘轮和离线演示。
 
 ## 可核验证据
 
-- 自动化测试：43项；
+- 自动化测试：108项，`agent_audit` 行覆盖率86.9%；
 - 真实模型示范：5个基准、15个配对变体、每条3次，共60次本地评分；
 - 同条件模型对比：Gemma 3 4B与Gemma 4 E4B各60次调用，比较前核对输入、评分标准、温度、重复次数、阈值和量表；
 - 故障恢复示范：20条样本全部从检查点恢复，新增模型调用为0，恢复前后评分CSV哈希一致；
-- HTML审查：桌面与移动视口检查，发现并修复窄屏表格逐字符换行问题。
+- HTML审查：桌面与移动视口检查，发现并修复窄屏表格逐字符换行问题；
+- 正确性专项审计：以独立重演公布公式的属性测试发现并修复三处失败打开缺陷（非有限分数、超表范围改用正态近似、布尔值被当作分数），并用15个变异体验证新测试确实能捕获对应缺陷。
 
 这些证据证明工具流程、可追溯性和防误读机制可以工作，不证明任一模型总体优于另一模型，也不证明系统适合真实教育决策。
 
@@ -41,11 +42,11 @@
 
 ## 中文简历表述
 
-> 设计并实现LLM评分可靠性审计工具，覆盖成对干预测试、重复采样不确定性、可恢复模型调用、同条件版本回归和安全HTML交付；以43项自动化测试、双版本各60次真实模型调用及故障恢复实验验证可追溯性与失败关闭逻辑。
+> 设计并实现LLM评分可靠性审计工具，覆盖成对干预测试、重复采样不确定性、可恢复模型调用、同条件版本回归和安全HTML交付；以108项自动化测试、双版本各60次真实模型调用及故障恢复实验验证可追溯性与失败关闭逻辑。
 
 ## English resume bullet
 
-> Built a traceable reliability-audit toolkit for LLM graders, covering paired intervention tests, repeated-sampling uncertainty, resumable model calls, verified version regression, and secure self-contained HTML delivery; validated the workflow with 43 automated tests, two 60-call local model runs, and fault-injection recovery checks.
+> Built a traceable reliability-audit toolkit for LLM graders, covering paired intervention tests, repeated-sampling uncertainty, resumable model calls, verified version regression, and secure self-contained HTML delivery; validated the workflow with 108 automated tests, two 60-call local model runs, and fault-injection recovery checks.
 
 ## 面试展开顺序
 

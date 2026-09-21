@@ -42,7 +42,13 @@ python -m agent_audit audit `
 python -m unittest discover -s tests -v
 ```
 
-运行完整本地审查门：
+检查逐模块行覆盖率下限（只使用标准库 `trace`）：
+
+```powershell
+python scripts/coverage_report.py
+```
+
+运行完整本地审查门（编译、测试、覆盖率、离线演示与空白检查）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/review.ps1
@@ -200,7 +206,7 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.7支持三条相互分离的流程：
+版本0.8支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
 2. 对已有评分结果进行离线审计；

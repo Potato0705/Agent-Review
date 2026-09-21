@@ -4,7 +4,11 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from agent_audit.audit import AuditConfig, audit_records
+from agent_audit.audit import (
+    AuditConfig,
+    _conservative_critical_value,
+    audit_records,
+)
 from agent_audit.io import load_score_records, write_score_records
 from agent_audit.models import ScoreRecord
 from agent_audit.report import render_markdown_report
@@ -76,6 +80,96 @@ class AuditTests(unittest.TestCase):
 
         self.assertIn("公开示范数据", report)
         self.assertNotIn("合成数据，仅用于方法演示", report)
+
+    def test_rejects_non_finite_scores_without_a_declared_range(self) -> None:
+        """A NaN score must fail closed, not silently report LOW risk.
+
+        Comparisons against NaN are always False, so an unchecked NaN makes
+        every variant look non-violating. The range check only runs when
+        score_min/score_max are declared, so audit_records must reject
+        non-finite scores on its own.
+        """
+
+        for bad_score in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(score=bad_score):
+                records = [
+                    ScoreRecord("Broken", "c1", "base", "baseline", bad_score),
+                    ScoreRecord("Broken", "c1", "gaming", "gaming", 9.0),
+                    ScoreRecord("Broken", "c1", "degraded", "degradation", 1.0),
+                ]
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    audit_records(records, AuditConfig())
+
+    def test_conservative_critical_value_never_falls_below_the_table(self) -> None:
+        """The interval must stay conservative past the tabulated range.
+
+        Returning the normal approximation 1.96 for large samples makes the
+        interval narrower than the true t interval, which would hide genuinely
+        borderline judgments instead of marking them provisional.
+        """
+
+        smallest_tabulated = 2.042
+        previous = None
+        for sample_count in range(2, 120):
+            value = _conservative_critical_value(sample_count, sample_count)
+            self.assertGreaterEqual(
+                value,
+                smallest_tabulated,
+                f"critical value for n={sample_count} is anti-conservative",
+            )
+            if previous is not None:
+                self.assertLessEqual(value, previous)
+            previous = value
+
+    def test_evidence_grade_follows_the_published_case_count_tiers(self) -> None:
+        """Gate 2 fixes three tiers; the label drives how a client may cite it.
+
+        Under 5 baselines is demonstration-only, 5-29 is exploratory, and 30 or
+        more is still only screening grade. Both the Markdown and the HTML
+        report must agree on the tier.
+        """
+
+        from agent_audit.html_report import render_audit_html
+
+        for case_count, markdown_label, html_label in (
+            (3, "演示级", "演示级"),
+            (5, "探索性", "探索性"),
+            (30, "筛查级", "筛查级"),
+        ):
+            with self.subTest(case_count=case_count):
+                records: list[ScoreRecord] = []
+                for index in range(case_count):
+                    case_id = f"c{index}"
+                    records.extend(
+                        [
+                            ScoreRecord("Graded", case_id, "base", "baseline", 7.0),
+                            ScoreRecord("Graded", case_id, "gaming", "gaming", 6.8),
+                            ScoreRecord(
+                                "Graded", case_id, "degraded", "degradation", 5.5
+                            ),
+                        ]
+                    )
+
+                result = audit_records(records, AuditConfig())
+
+                self.assertEqual(result.case_count, case_count)
+
+                # The report also prints a static sentence naming all three
+                # tiers, so assert on the computed line rather than the whole
+                # document.
+                evidence_lines = [
+                    line
+                    for line in render_markdown_report(result).splitlines()
+                    if line.startswith("- 证据强度：")
+                ]
+                self.assertEqual(len(evidence_lines), 1)
+                self.assertIn(markdown_label, evidence_lines[0])
+
+                html = render_audit_html(result)
+                self.assertIn(
+                    f'<div class="label">证据强度</div><div class="value">{html_label}</div>',
+                    html,
+                )
 
     def test_rejects_negative_thresholds(self) -> None:
         records = load_score_records(ROOT / "examples" / "demo_scores.csv")

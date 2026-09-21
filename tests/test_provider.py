@@ -13,7 +13,12 @@ from agent_audit.audit import AuditConfig, audit_records
 from agent_audit.cli import run_audit, run_score
 from agent_audit.io import load_score_records
 from agent_audit.models import ScoringCase
-from agent_audit.provider import OpenAICompatibleConfig, OpenAICompatibleScorer
+from agent_audit.provider import (
+    OpenAICompatibleConfig,
+    OpenAICompatibleScorer,
+    ProviderError,
+    _parse_score_content,
+)
 from agent_audit.scoring import run_scoring
 
 
@@ -87,6 +92,85 @@ class ProviderTests(unittest.TestCase):
                 max_retries=0,
             )
         )
+
+    def test_rejects_a_boolean_score(self) -> None:
+        """A boolean is not a score, and float(True) would silently mean 1.0.
+
+        A grader that answers with true/false has failed to produce a rating.
+        Converting that to 1.0 or 0.0 would put a fabricated number into the
+        client score file with no trace that the model never scored the text.
+        """
+
+        for literal in ("true", "false"):
+            with self.subTest(literal=literal):
+                content = '{"score": ' + literal + ', "reason": "no rating"}'
+                with self.assertRaisesRegex(ProviderError, "numeric score"):
+                    _parse_score_content(content, 0.0, 10.0)
+
+    def test_extracts_a_score_from_a_fenced_code_block(self) -> None:
+        content = '```json\n{"score": 7.5, "reason": "clear thesis"}\n```'
+
+        score, reason = _parse_score_content(content, 0.0, 10.0)
+
+        self.assertAlmostEqual(score, 7.5)
+        self.assertEqual(reason, "clear thesis")
+
+    def test_extracts_a_score_from_surrounding_prose(self) -> None:
+        content = 'Here is my rating:\n{"score": 4, "reason": "weak evidence"} Hope that helps.'
+
+        score, reason = _parse_score_content(content, 0.0, 10.0)
+
+        self.assertAlmostEqual(score, 4.0)
+        self.assertEqual(reason, "weak evidence")
+
+    def test_rejects_output_without_any_json_object(self) -> None:
+        with self.assertRaisesRegex(ProviderError, "did not return a JSON scoring object"):
+            _parse_score_content("I would rate this an eight out of ten.", 0.0, 10.0)
+
+    def test_rejects_a_json_array(self) -> None:
+        with self.assertRaisesRegex(ProviderError, "must be a JSON object"):
+            _parse_score_content("[7.5]", 0.0, 10.0)
+
+    def test_rejects_a_missing_score_field(self) -> None:
+        with self.assertRaisesRegex(ProviderError, "numeric score"):
+            _parse_score_content('{"rating": 7.5}', 0.0, 10.0)
+
+    def test_rejects_a_non_finite_score(self) -> None:
+        with self.assertRaisesRegex(ProviderError, "must be finite"):
+            _parse_score_content('{"score": NaN}', 0.0, 10.0)
+
+    def test_rejects_a_score_outside_the_requested_range(self) -> None:
+        for value in ("11", "-1"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ProviderError, "outside the requested range"):
+                    _parse_score_content('{"score": ' + value + "}", 0.0, 10.0)
+
+    def test_rejects_a_non_string_reason(self) -> None:
+        with self.assertRaisesRegex(ProviderError, "reason must be a string"):
+            _parse_score_content('{"score": 7.5, "reason": 42}', 0.0, 10.0)
+
+    def test_rejects_non_local_http_endpoints(self) -> None:
+        """Gate 3 forbids sending prompts to a remote endpoint in clear text."""
+
+        config = OpenAICompatibleConfig(
+            base_url="http://scores.example.com/v1", model="m", api_key="k"
+        )
+        with self.assertRaisesRegex(ValueError, "must use HTTPS"):
+            config.validate()
+
+    def test_rejects_credentials_embedded_in_the_base_url(self) -> None:
+        config = OpenAICompatibleConfig(
+            base_url="https://user:secret@api.example.com/v1", model="m", api_key="k"
+        )
+        with self.assertRaisesRegex(ValueError, "must not contain credentials"):
+            config.validate()
+
+    def test_allows_a_local_http_endpoint(self) -> None:
+        for host in ("localhost", "127.0.0.1"):
+            with self.subTest(host=host):
+                OpenAICompatibleConfig(
+                    base_url=f"http://{host}:11434/v1", model="m", api_key="k"
+                ).validate()
 
     def test_scores_with_openai_compatible_response(self) -> None:
         result = self._scorer().score("SCORE=7.5", "Test rubric")

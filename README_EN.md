@@ -52,6 +52,12 @@ Run the complete local review gate:
 powershell -ExecutionPolicy Bypass -File scripts/review.ps1
 ```
 
+The review script also enforces per-module line-coverage floors, measured with the standard library only:
+
+```powershell
+python scripts/coverage_report.py
+```
+
 The committed [synthetic HTML example](docs/examples/example_audit_report.html) can be downloaded and opened locally without a server or network connection.
 
 ## Score with an OpenAI-compatible model

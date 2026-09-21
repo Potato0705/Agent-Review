@@ -136,7 +136,7 @@ def _conservative_critical_value(
         raise ValueError("Repeated samples must provide positive degrees of freedom.")
     if degrees_of_freedom <= len(t_critical_95):
         return t_critical_95[degrees_of_freedom - 1]
-    return 1.96
+    return t_critical_95[-1]
 
 
 def _risk_level(
@@ -189,6 +189,10 @@ def audit_records(
     system_name = next(iter(systems))
 
     for row in rows:
+        if not math.isfinite(row.score):
+            raise ValueError(
+                f"score for {row.case_id}/{row.variant_id} must be finite."
+            )
         if row.sample_count < 1:
             raise ValueError(
                 f"sample_count for {row.case_id}/{row.variant_id} must be at least 1."

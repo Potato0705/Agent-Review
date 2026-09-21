@@ -108,7 +108,10 @@ def _parse_score_content(content: str, score_min: float, score_max: float) -> tu
     if not isinstance(payload, dict):
         raise ProviderError("Provider scoring output must be a JSON object.")
     try:
-        score = float(payload["score"])
+        raw_score = payload["score"]
+        if isinstance(raw_score, bool):
+            raise TypeError("a boolean is not a score")
+        score = float(raw_score)
     except (KeyError, TypeError, ValueError) as exc:
         raise ProviderError("Provider scoring output must contain a numeric score.") from exc
     if not math.isfinite(score):
@@ -160,7 +163,7 @@ class OpenAICompatibleScorer:
             headers={
                 "Authorization": f"Bearer {self.config.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "Agent-Review/0.7",
+                "User-Agent": "Agent-Review/0.8",
             },
             method="POST",
         )
