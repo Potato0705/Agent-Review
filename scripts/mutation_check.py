@@ -235,6 +235,43 @@ MUTANTS: tuple[Mutant, ...] = (
         '            "未通过是确凿证据，通过不能证明系统可靠。"',
         '            "变体由工具生成。"',
     ),
+    # --- generated variants must match their own label ------------------------
+    Mutant(
+        "variants",
+        "accept a gaming variant that removed content",
+        "    if not produced.startswith(baseline) or len(produced) <= len(baseline):",
+        "    if False:",
+    ),
+    Mutant(
+        "variants",
+        "accept a degradation variant that kept the evidence",
+        "        if annotated in produced:",
+        "        if False:",
+    ),
+    Mutant(
+        "variants",
+        "substitute connectives anywhere instead of at clause boundaries",
+        "        at_boundary = index == 0 or text[index - 1] in CLAUSE_BOUNDARIES",
+        "        at_boundary = True",
+    ),
+    Mutant(
+        "variants",
+        "allow a strategy family to be empty",
+        "    if not selected:",
+        "    if False:",
+    ),
+    Mutant(
+        "io",
+        "accept an evidence index past the last sentence",
+        "            if indices[-1] > len(sentences):",
+        "            if False:",
+    ),
+    Mutant(
+        "io",
+        "accept an annotation that covers every sentence",
+        "            if len(indices) == len(sentences):",
+        "            if False:",
+    ),
     # --- untrusted input ------------------------------------------------------
     Mutant(
         "io",

@@ -163,7 +163,7 @@ class OpenAICompatibleScorer:
             headers={
                 "Authorization": f"Bearer {self.config.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "Agent-Review/0.9",
+                "User-Agent": "Agent-Review/0.10",
             },
             method="POST",
         )

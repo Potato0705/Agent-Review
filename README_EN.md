@@ -58,6 +58,19 @@ The review script also enforces per-module line-coverage floors, measured with t
 python scripts/coverage_report.py
 ```
 
+Generate gaming and degradation variants from annotated baselines, so the most time-consuming part of a delivery is no longer hand-written:
+
+```powershell
+python -m agent_audit generate `
+  --input examples/essay_baselines.csv `
+  --output outputs/generated_cases.csv `
+  --seed 0
+```
+
+The input marks which sentences carry the argument (`evidence_sentences`, 1-based). The tool never infers that: a missing, out-of-range, or all-covering annotation stops the run. Every variant must satisfy a machine-checkable postcondition before it is written — a gaming variant must still contain the whole baseline as a prefix, and a degradation variant must contain none of the annotated sentences while keeping the rest in order. The manifest records each intervention's size and the exact corpus sentences inserted, so a reviewer can confirm the padding really is irrelevant to that prompt.
+
+Paraphrase generation is off by default: the conservative rewrite almost always scores the same, so including it would dilute the violation rate and make a grader look safer than it is.
+
 The committed [synthetic HTML example](docs/examples/example_audit_report.html) can be downloaded and opened locally without a server or network connection.
 
 ## Score with an OpenAI-compatible model

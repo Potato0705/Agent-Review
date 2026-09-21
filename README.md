@@ -67,6 +67,43 @@ python -m pip install -e .
 agent-audit audit --input examples/demo_scores.csv --report outputs/demo_report.md
 ```
 
+## 自动生成变体
+
+手写作弊与退化变体是交付里最耗时的一步。`generate` 由带标注的基准生成它们：
+
+```powershell
+python -m agent_audit generate `
+  --input examples/essay_baselines.csv `
+  --output outputs/generated_cases.csv `
+  --seed 0
+```
+
+输入是一行一个案例的最小CSV，`evidence_sentences` 用1起的句序号标出承重的证据或核心主张：
+
+| 列 | 含义 |
+|---|---|
+| `case_id` | 案例ID |
+| `text` | 基准文本 |
+| `evidence_sentences` | 承重句序号，如 `2,3` |
+| `notes` | 可选说明 |
+
+**工具不推断哪句承重。** 没有标注、序号越界、或标注覆盖全部句子时直接报错退出，不产出可疑变体。
+
+默认每个案例生成四个变体：两个作弊（追加无关扩写、追加评分术语堆砌）和两个退化（删除标注句、删除后替换为无依据断言）。每个变体都必须通过机器可验证的后置条件才会被写出，例如作弊变体必须完整包含基准文本作为前缀，证明它只增不减。
+
+输出就是 `score` 的输入格式，任何一行都可以手工替换后重新喂入。清单逐变体记录干预幅度和实际插入的语料原文，便于人工确认「无关扩写」这个前提在该题目上真的成立。
+
+`--paraphrase connective_substitution` 可选开启等义改写，**默认关闭**：保守的关联词替换编辑距离极小，评分器几乎必然给出近似分数，掺入后会稀释违规率并把风险评低。该规则只在小句边界替换关联词，遇到没有可替换关联词的文本会直接拒绝而不是硬造一个假的等义改写。
+
+审计机器生成的变体时必须声明来源：
+
+```powershell
+python -m agent_audit audit `
+  --input outputs/live_scores.csv `
+  --report outputs/live_report.md `
+  --variant-origin machine-generated
+```
+
 ## 使用真实的 OpenAI-compatible 模型评分
 
 项目可以调用实现 `/chat/completions` 接口的模型服务。API密钥只从环境变量读取，不接受命令行明文参数。
@@ -208,11 +245,12 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.9支持三条相互分离的流程：
+版本0.10支持四条相互分离的流程：
 
-1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
-2. 对已有评分结果进行离线审计；
-3. 对两份同条件审计结果进行模型或版本回归比较。
+1. 由带标注的基准生成作弊与内容退化变体；
+2. 调用OpenAI-compatible模型产生评分、理由和运行清单；
+3. 对已有评分结果进行离线审计；
+4. 对两份同条件审计结果进行模型或版本回归比较。
 
 这种分离可以：
 
@@ -221,7 +259,7 @@ python -m agent_audit compare `
 - 在无网络和无外部依赖的环境中复现；
 - 清晰区分模型调用和效度分析。
 
-后续版本可增加自动变体生成、Agent轨迹评测和服务端结果管理。
+后续版本可增加模型辅助的等义改写、Agent轨迹评测和服务端结果管理。
 
 ## 目录结构
 
