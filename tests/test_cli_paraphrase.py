@@ -204,6 +204,28 @@ class ParaphraseCommandTests(unittest.TestCase):
             self.output.read_text(encoding="utf-8"), "reviewer decisions live here"
         )
 
+    def test_a_local_endpoint_needs_no_key(self) -> None:
+        """Running a model on your own machine must not require a key."""
+
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            status = self._run("--api-key-env", "AGENT_REVIEW_ABSENT_KEY")
+
+        self.assertEqual(status, 0)
+        self.assertTrue(self.output.exists())
+
+    def test_the_manifest_path_can_be_named(self) -> None:
+        elsewhere = self.work / "drafting.json"
+
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            self._run("--manifest", str(elsewhere))
+
+        self.assertTrue(elsewhere.exists())
+        self.assertFalse(self.output.with_suffix(".manifest.json").exists())
+
     def test_a_remote_endpoint_without_a_key_is_a_usage_error(self) -> None:
         stderr = io.StringIO()
         with self.assertRaises(SystemExit):
@@ -467,6 +489,43 @@ class RatifiedMergeTests(unittest.TestCase):
                 self._generate("--append", "--paraphrase-review", str(self.review))
 
         self.assertIn("paraphrase_model", stderr.getvalue())
+
+    def test_a_drafting_manifest_that_is_not_an_object_is_refused(self) -> None:
+        self._approved_review()
+        self.review.with_suffix(".manifest.json").write_text(
+            json.dumps(["test-rewriter"]), encoding="utf-8"
+        )
+        stderr = io.StringIO()
+
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                stderr
+            ):
+                self._generate("--append", "--paraphrase-review", str(self.review))
+
+        self.assertIn("must contain a JSON object", stderr.getvalue())
+
+    def test_a_reviewer_note_travels_with_the_ratified_row(self) -> None:
+        """The reviewer's own reasoning is why the row was admitted."""
+
+        _write_review(
+            self.review,
+            [
+                _review_row(
+                    "school_start",
+                    self.texts["school_start"],
+                    "approved",
+                    reviewer_note="核对过证据句，含义一致",
+                )
+            ],
+        )
+        self._merge()
+
+        ratified = next(
+            row for row in self._rows() if row["variant_id"] == "paraphrase_ratified"
+        )
+
+        self.assertIn("reviewer_note=核对过证据句，含义一致", ratified["notes"])
 
     def test_a_malformed_drafting_manifest_is_refused(self) -> None:
         self._approved_review()
@@ -732,6 +791,29 @@ class CircularityTests(unittest.TestCase):
                 )
 
         self.assertIn("human-authored is false", stderr.getvalue())
+
+    def test_an_unnamed_drafting_model_in_the_generation_manifest_is_refused(
+        self,
+    ) -> None:
+        """A blank name would pass the circularity check by saying nothing."""
+
+        self._write_scores("grader-model")
+        manifest = json.loads(
+            self.generation_manifest.read_text(encoding="utf-8")
+        )
+        manifest["paraphrase_model"] = "   "
+        self.generation_manifest.write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+        stderr = io.StringIO()
+
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                stderr
+            ):
+                self._audit()
+
+        self.assertIn("paraphrase_model", stderr.getvalue())
 
     def test_an_audit_without_a_drafting_model_names_no_models(self) -> None:
         """A plain generated set must not gain a models line in the report."""
