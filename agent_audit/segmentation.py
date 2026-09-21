@@ -58,6 +58,10 @@ class LanguageStrategy:
     ambiguous_terminators: str = ""
     abbreviations: frozenset[str] = frozenset()
     requires_word_boundaries: bool = False
+    negation_markers: tuple[str, ...] = ()
+    numeral_characters: str = ""
+    measure_words: tuple[str, ...] = ()
+    paraphrase_instruction: str = ""
 
     def split(self, text: str) -> tuple[str, ...]:
         return split_sentences(text, self)
@@ -164,6 +168,20 @@ CHINESE = LanguageStrategy(
         # 但是 is listed before 但 so the longer form wins the match.
         ("但", "然而"),
     ),
+    negation_markers=("不", "没", "无", "非", "未", "莫", "勿"),
+    numeral_characters="零一二三四五六七八九十百千万亿两",
+    # A numeral only reads as a quantity when a measure word follows it.
+    # Without this, 统一 and 一起 are mistaken for the number 一.
+    measure_words=(
+        "小时", "分钟", "公里", "个", "点", "分", "秒", "天", "周", "月", "年",
+        "名", "位", "条", "次", "项", "倍", "成", "岁", "级", "班", "人", "元",
+        "米", "页", "章", "节", "所", "家", "份", "种", "类",
+    ),
+    paraphrase_instruction=(
+        "请把下面的文本改写一遍。要求：完整保留原有的观点、证据、数字、"
+        "让步与否定关系；改变句式与用词；不要增加或删除任何信息；"
+        "不要添加说明、标题或引号。只输出改写后的文本。"
+    ),
 )
 
 
@@ -218,6 +236,13 @@ ENGLISH = LanguageStrategy(
     ambiguous_terminators=".",
     abbreviations=LATIN_ABBREVIATIONS,
     requires_word_boundaries=True,
+    negation_markers=("not", "no", "never", "cannot", "without", "neither", "nor"),
+    paraphrase_instruction=(
+        "Rewrite the text below. Keep every claim, piece of evidence, number, "
+        "concession and negation exactly as it stands; change the sentence "
+        "structure and wording; add nothing and remove nothing. Do not add a "
+        "preamble, a title or quotation marks. Output only the rewritten text."
+    ),
 )
 
 

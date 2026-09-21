@@ -145,15 +145,17 @@ class OpenAICompatibleScorer:
             {"role": "user", "content": f"SUBMISSION TO SCORE:\n{text}"},
         ]
 
-    def score(self, text: str, rubric: str) -> ProviderScore:
-        if not text.strip():
-            raise ValueError("text must not be empty.")
-        if not rubric.strip():
-            raise ValueError("rubric must not be empty.")
+    def complete(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any]]:
+        """Send one chat completion and return its text plus the raw payload.
+
+        Transport lives here so every caller — the scorer and the rewriter —
+        shares one retry policy, one URL guard and one set of error messages.
+        A second copy would drift.
+        """
 
         request_body = {
             "model": self.config.model,
-            "messages": self.build_messages(text, rubric),
+            "messages": messages,
             "temperature": self.config.temperature,
         }
         encoded = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
@@ -194,7 +196,15 @@ class OpenAICompatibleScorer:
             message_content = response_payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError("Provider response is missing choices[0].message.content.") from exc
-        content = _content_to_text(message_content)
+        return _content_to_text(message_content), response_payload
+
+    def score(self, text: str, rubric: str) -> ProviderScore:
+        if not text.strip():
+            raise ValueError("text must not be empty.")
+        if not rubric.strip():
+            raise ValueError("rubric must not be empty.")
+
+        content, response_payload = self.complete(self.build_messages(text, rubric))
         score, reason = _parse_score_content(
             content, self.config.score_min, self.config.score_max
         )

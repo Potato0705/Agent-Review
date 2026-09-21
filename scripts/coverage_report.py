@@ -67,6 +67,7 @@ MAX_UNCOVERED_LINES = {
     "html_report": 1,
     "io": 1,
     "models": 1,
+    "paraphrase": 2,
     "provider": 2,
     "report": 1,
     "scoring": 1,
