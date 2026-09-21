@@ -16,6 +16,7 @@ class AuditConfig:
     score_min: float | None = None
     score_max: float | None = None
     data_provenance: str = "unspecified"
+    variant_origin: str = "unspecified"
 
     def validate(self) -> None:
         numeric_fields = {
@@ -42,6 +43,16 @@ class AuditConfig:
         if self.data_provenance not in allowed_provenance:
             raise ValueError(
                 f"data_provenance must be one of {sorted(allowed_provenance)}."
+            )
+        allowed_origin = {
+            "human-authored",
+            "machine-generated",
+            "mixed",
+            "unspecified",
+        }
+        if self.variant_origin not in allowed_origin:
+            raise ValueError(
+                f"variant_origin must be one of {sorted(allowed_origin)}."
             )
 
 

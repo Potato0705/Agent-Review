@@ -66,6 +66,18 @@ class AuditConfigValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "data_provenance must be one of"):
             AuditConfig(data_provenance="client-private").validate()
 
+    def test_rejects_an_undeclared_variant_origin_label(self) -> None:
+        with self.assertRaisesRegex(ValueError, "variant_origin must be one of"):
+            AuditConfig(variant_origin="auto").validate()
+
+    def test_accepts_every_declared_variant_origin(self) -> None:
+        for value in ("human-authored", "machine-generated", "mixed", "unspecified"):
+            with self.subTest(value=value):
+                AuditConfig(variant_origin=value).validate()
+
+    def test_variant_origin_defaults_to_unspecified(self) -> None:
+        self.assertEqual(AuditConfig().variant_origin, "unspecified")
+
 
 class AuditRecordValidationTests(unittest.TestCase):
     def test_rejects_an_empty_record_set(self) -> None:
