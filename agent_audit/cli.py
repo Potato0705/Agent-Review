@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="unspecified",
         help="Declared origin of the evaluated data.",
     )
+    audit_parser.add_argument(
+        "--variant-origin",
+        choices=["human-authored", "machine-generated", "mixed", "unspecified"],
+        default="unspecified",
+        help="Whether the variants were written by hand or generated.",
+    )
 
     score_parser = subparsers.add_parser(
         "score", help="Score case texts with an OpenAI-compatible chat API."
@@ -119,6 +125,7 @@ def run_audit(args: argparse.Namespace) -> int:
         score_min=args.score_min,
         score_max=args.score_max,
         data_provenance=args.data_provenance,
+        variant_origin=args.variant_origin,
     )
     records = load_score_records(args.input)
     result = audit_records(records, config)

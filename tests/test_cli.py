@@ -84,6 +84,18 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(args.resume)
         self.assertEqual(args.api_key_env, "OPENAI_API_KEY")
 
+    def test_variant_origin_defaults_to_unspecified(self) -> None:
+        args = build_parser().parse_args(["audit", "--input", "a.csv", "--report", "r.md"])
+
+        self.assertEqual(args.variant_origin, "unspecified")
+
+    def test_an_undeclared_variant_origin_choice_is_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(
+                ["audit", "--input", "a.csv", "--report", "r.md",
+                 "--variant-origin", "auto"]
+            )
+
     def test_an_undeclared_provenance_choice_is_rejected(self) -> None:
         with self.assertRaises(SystemExit):
             build_parser().parse_args(
@@ -122,6 +134,23 @@ class MainDispatchTests(unittest.TestCase):
         self.assertIn("效度余量", report.read_text(encoding="utf-8"))
         self.assertEqual(json.loads(result.read_text(encoding="utf-8"))["case_count"], 3)
         self.assertIn("<!doctype html>", page.read_text(encoding="utf-8").lower())
+
+    def test_audit_records_the_declared_variant_origin(self) -> None:
+        result = self.work / "result.json"
+
+        status = main(
+            [
+                "audit",
+                "--input", str(DEMO_CSV),
+                "--report", str(self.work / "report.md"),
+                "--json", str(result),
+                "--variant-origin", "machine-generated",
+            ]
+        )
+
+        self.assertEqual(status, 0)
+        payload = json.loads(result.read_text(encoding="utf-8"))
+        self.assertEqual(payload["config"]["variant_origin"], "machine-generated")
 
     def test_audit_reports_a_bad_input_as_a_usage_error(self) -> None:
         """A malformed input must exit with a message, not a traceback."""
