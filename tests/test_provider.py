@@ -321,6 +321,7 @@ class ProviderTests(unittest.TestCase):
                 score_min=0.0,
                 score_max=10.0,
                 data_provenance="public-demo",
+                variant_origin="human-authored",
                 manifest=str(manifest_path),
                 html_output=str(audit_html_path),
             )
