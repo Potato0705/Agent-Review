@@ -147,7 +147,9 @@ def run_audit(args: argparse.Namespace) -> int:
         payload = result.to_dict()
         payload["comparison_context"] = comparison_context
         json_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+            newline="\n",
         )
         print(f"JSON written to: {json_path.resolve()}")
     html_output = getattr(args, "html_output", None)

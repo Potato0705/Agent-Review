@@ -2,6 +2,8 @@
 
 一个面向 LLM 评分器与 AI 评测系统的轻量可靠性审计工具。它比较基准样本、作弊式修改、内容退化和等义改写的评分结果，帮助发现普通准确率或相关性指标看不到的风险。
 
+[English](README_EN.md)
+
 项目主页：[Potato0705/Agent-Review](https://github.com/Potato0705/Agent-Review)
 
 ## 它回答什么问题
@@ -44,6 +46,12 @@ python -m unittest discover -s tests -v
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/review.ps1
+```
+
+推送版本前执行包含文件、远端和单一贡献者身份检查的发布门：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_check.ps1 -RequireClean
 ```
 
 也可以安装为命令行工具：
@@ -131,11 +139,13 @@ CSV 至少包含以下字段：
 
 为了让效度余量有可解释的成对对照，每个案例还必须至少包含一个 `gaming` 和一个 `degradation` 变体；`paraphrase` 可选但推荐。
 
-无需运行代码也可以先查看[合成示例审计报告](docs/example_audit_report.md)。
+无需运行代码也可以先查看[合成示例审计报告](docs/examples/example_audit_report.md)。
 
-首个真实本地模型示范见：[Gemma 3 4B 评分可靠性案例](docs/gemma3_case_study.md)。该案例包含5个基准文本，明确属于探索性证据。
+也可以下载并离线打开[自包含HTML示例](docs/examples/example_audit_report.html)。该文件由 `scripts/build_public_demo.ps1` 从合成数据生成，不需要服务器或网络连接。
 
-同条件版本对比见：[Gemma 3 4B 与 Gemma 4 E4B 对比](docs/gemma_version_comparison.md)。两侧各包含60次评分，并明确区分按均值观察到的改善与暂定变化。
+首个真实本地模型示范见：[Gemma 3 4B 评分可靠性案例](docs/case_studies/gemma3_case_study.md)。该案例包含5个基准文本，明确属于探索性证据。
+
+同条件版本对比见：[Gemma 3 4B 与 Gemma 4 E4B 对比](docs/case_studies/gemma_version_comparison.md)。两侧各包含60次评分，并明确区分按均值观察到的改善与暂定变化。
 
 ## 默认判定规则
 
@@ -190,7 +200,7 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.6支持三条相互分离的流程：
+版本0.7支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
 2. 对已有评分结果进行离线审计；
@@ -213,14 +223,14 @@ agent_audit/checkpoint.py   长任务检查点与安全恢复
 agent_audit/html_report.py  自包含HTML审计与对比报告
 examples/                   合成示例和输入模板
 tests/                      标准库 unittest 测试
-docs/service_one_pager.md   对外服务说明
-docs/client_intake.md       客户需求收集模板
-docs/report_template.md     人工审计报告模板
-docs/first_week_playbook.md 首周获客执行清单
-docs/review_log.md          逻辑审查、问题与验证证据
-docs/quality_gates.md       每一阶段必须通过的审查门
-docs/gemma3_case_study.md   首个真实本地模型公开示范
-docs/gemma_version_comparison.md 同条件模型版本对比示范
+scripts/                    本地审查、公开资产构建与发布门脚本
+.github/                    CI工作流与公开需求模板
+docs/README.md              分类文档导航
+docs/examples/              可公开的合成示例
+docs/case_studies/          真实模型探索性案例
+docs/service/               客户需求、范围与交付模板
+docs/portfolio/             简历、作品集与面试材料
+docs/governance/            质量门、审查日志、路线图与仓库规范
 outputs/                    本地生成结果（默认不提交）
 ```
 
@@ -232,6 +242,10 @@ outputs/                    本地生成结果（默认不提交）
 - 运行清单保存输入和评分标准的SHA-256哈希，不保存原始输入或API密钥。
 - 自动报告必须经过人工复核。
 - 本工具提供风险筛查，不提供法律、监管或心理测量认证。
+
+## 服务与联系
+
+如需评估LLM评分器、自动反馈系统或评测流程，可先提交一份不含敏感数据的[审计需求](https://github.com/Potato0705/Agent-Review/issues/new?template=audit-request.md)。公开Issue中不要粘贴API密钥、私有样本、个人信息、保密提示词或客户名称；确认范围后再约定私密材料传输方式。
 
 ## License
 

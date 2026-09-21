@@ -14,8 +14,8 @@
 - 温度：0.2；
 - 重复采样：每条输入3次；
 - 数据：5个中文基准短文，每个包含作弊式修改、内容退化和等义改写，共20条输入、60次评分；
-- 评分标准：[essay_rubric.md](../examples/essay_rubric.md)；
-- 测试文本：[essay_cases.csv](../examples/essay_cases.csv)；
+- 评分标准：[essay_rubric.md](../../examples/essay_rubric.md)；
+- 测试文本：[essay_cases.csv](../../examples/essay_cases.csv)；
 - 输入哈希：`79d320b415c64d256112b065f90523dcadb666f0234760d7191a8fff94b4166c`；
 - 评分标准哈希：`2f562a3b448ca30adb24025f9f19367cbad42d471ba3f3f849578103868ecc3f`。
 

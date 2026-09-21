@@ -47,8 +47,8 @@ body {
   box-shadow: var(--shadow);
 }
 .eyebrow { margin: 0 0 8px; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; opacity: .76; }
-h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.18; }
-.subtitle { margin: 12px 0 0; max-width: 820px; opacity: .86; }
+h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.18; overflow-wrap: anywhere; }
+.subtitle { margin: 12px 0 0; max-width: 820px; opacity: .86; overflow-wrap: anywhere; }
 .grid { display: grid; gap: 16px; }
 .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 22px 0; }
 .card, section {
@@ -59,7 +59,7 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.18; }
 }
 .card { padding: 18px 20px; }
 .card .label { color: var(--muted); font-size: 13px; }
-.card .value { margin-top: 4px; font-size: 25px; font-weight: 750; }
+.card .value { margin-top: 4px; font-size: 25px; font-weight: 750; overflow-wrap: anywhere; }
 section { margin-top: 20px; padding: 24px; overflow: hidden; }
 h2 { margin: 0 0 16px; font-size: 22px; }
 h3 { margin: 0; font-size: 18px; }

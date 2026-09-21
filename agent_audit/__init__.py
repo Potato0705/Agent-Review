@@ -12,4 +12,4 @@ __all__ = [
     "compare_audits",
     "load_score_records",
 ]
-__version__ = "0.6.0"
+__version__ = "0.7.0"

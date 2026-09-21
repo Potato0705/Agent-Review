@@ -213,7 +213,9 @@ def write_score_records(path: str | Path, records: list[ScoreRecord]) -> Path:
 
 
 def write_text(path: str | Path, content: str) -> Path:
+    """Write text with LF endings so artifacts are byte-identical per platform."""
+
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(content, encoding="utf-8")
+    destination.write_text(content, encoding="utf-8", newline="\n")
     return destination

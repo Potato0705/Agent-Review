@@ -326,7 +326,7 @@ def write_json(path: str | Path, value: object) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n"
     )
     return destination
 
