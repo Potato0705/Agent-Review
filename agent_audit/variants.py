@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .models import BaselineCase
-from .segmentation import LanguageStrategy, split_sentences
+from .segmentation import CHINESE, LanguageStrategy, split_sentences
 
 
 GAMING_STRATEGIES = ("verbose_padding", "rubric_flattery")
@@ -243,3 +243,145 @@ def build_variant(
             f"{sorted(_BUILDERS)}."
         ) from exc
     return builder(case, language, rng)
+
+
+@dataclass(frozen=True)
+class GeneratedRow:
+    case_id: str
+    variant_id: str
+    variant_type: str
+    text: str
+    notes: str
+
+
+@dataclass(frozen=True)
+class GenerationRun:
+    rows: tuple[GeneratedRow, ...]
+    manifest: dict[str, Any]
+
+
+def _validate_family(
+    selected: tuple[str, ...], allowed: tuple[str, ...], family: str
+) -> None:
+    if not selected:
+        raise ValueError(
+            f"Variant generation needs at least one {family} strategy; "
+            f"`load_scoring_cases` requires every case to have one."
+        )
+    for name in selected:
+        if name not in allowed:
+            raise ValueError(
+                f"{name!r} is not a {family} strategy; expected one of "
+                f"{list(allowed)}."
+            )
+
+
+def _compose_notes(parts: list[str], source_note: str) -> str:
+    if source_note:
+        parts.append(f"source_note={source_note}")
+    return " | ".join(parts)
+
+
+def _magnitude_summary(magnitude: dict[str, Any]) -> str:
+    return "; ".join(
+        f"{key}={value:.3f}" if isinstance(value, float) else f"{key}={value}"
+        for key, value in sorted(magnitude.items())
+    )
+
+
+def generate_variants(
+    cases: list[BaselineCase],
+    *,
+    seed: int = 0,
+    gaming: tuple[str, ...] = GAMING_STRATEGIES,
+    degradation: tuple[str, ...] = DEGRADATION_STRATEGIES,
+    paraphrase: tuple[str, ...] = (),
+    language: LanguageStrategy = CHINESE,
+) -> GenerationRun:
+    """Build every requested variant, refusing rather than guessing.
+
+    Paraphrase is off by default. A conservative connective swap almost always
+    scores the same as its baseline, so including it would add a variant that
+    passes by construction and dilute the violation rate.
+    """
+
+    if not cases:
+        raise ValueError("At least one baseline case is required.")
+    _validate_family(gaming, GAMING_STRATEGIES, "gaming")
+    _validate_family(degradation, DEGRADATION_STRATEGIES, "degradation")
+    for name in paraphrase:
+        if name not in PARAPHRASE_STRATEGIES:
+            raise ValueError(
+                f"{name!r} is not a paraphrase strategy; expected one of "
+                f"{list(PARAPHRASE_STRATEGIES)}."
+            )
+
+    seen: set[str] = set()
+    for case in cases:
+        if case.case_id in seen:
+            raise ValueError(f"Baseline cases contain duplicate case_id {case.case_id!r}.")
+        seen.add(case.case_id)
+
+    rng = random.Random(seed)
+    rows: list[GeneratedRow] = []
+    records: list[dict[str, Any]] = []
+
+    for case in cases:
+        rows.append(
+            GeneratedRow(
+                case_id=case.case_id,
+                variant_id="baseline",
+                variant_type="baseline",
+                text=case.text,
+                notes=_compose_notes(["generated=baseline"], case.notes),
+            )
+        )
+        for strategy in (*gaming, *degradation, *paraphrase):
+            try:
+                variant = build_variant(case, strategy, language, rng)
+            except VariantPostconditionError as exc:
+                raise ValueError(
+                    f"Case {case.case_id!r} cannot produce a {strategy!r} variant: {exc}"
+                ) from exc
+
+            parts = [f"generated={strategy}"]
+            summary = _magnitude_summary(variant.magnitude)
+            if summary:
+                parts.append(summary)
+            if variant.variant_type == "paraphrase":
+                # The surface change is tiny, so this is an invariance floor
+                # rather than a real equivalence rewrite. Say so in the row.
+                parts.append("weak_probe=surface_only")
+            rows.append(
+                GeneratedRow(
+                    case_id=case.case_id,
+                    variant_id=variant.variant_id,
+                    variant_type=variant.variant_type,
+                    text=variant.text,
+                    notes=_compose_notes(parts, case.notes),
+                )
+            )
+            records.append(
+                {
+                    "case_id": case.case_id,
+                    "variant_id": variant.variant_id,
+                    "variant_type": variant.variant_type,
+                    "strategy": strategy,
+                    "magnitude": dict(variant.magnitude),
+                    "inserted_text": list(variant.inserted_text),
+                }
+            )
+
+    manifest: dict[str, Any] = {
+        "generator": "agent-review",
+        "language": language.name,
+        "seed": seed,
+        "case_count": len(cases),
+        "row_count": len(rows),
+        "gaming_strategies": list(gaming),
+        "degradation_strategies": list(degradation),
+        "paraphrase_strategies": list(paraphrase),
+        "requires_human_review": True,
+        "variants": records,
+    }
+    return GenerationRun(rows=tuple(rows), manifest=manifest)

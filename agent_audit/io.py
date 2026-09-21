@@ -300,6 +300,30 @@ def load_baseline_cases(path: str | Path) -> list[BaselineCase]:
     return cases
 
 
+def write_scoring_cases(path: str | Path, rows) -> Path:
+    """Write generated rows in the exact shape ``load_scoring_cases`` expects."""
+
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["case_id", "variant_id", "variant_type", "text", "notes"],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "case_id": row.case_id,
+                    "variant_id": row.variant_id,
+                    "variant_type": row.variant_type,
+                    "text": row.text,
+                    "notes": row.notes,
+                }
+            )
+    return destination
+
+
 def write_text(path: str | Path, content: str) -> Path:
     """Write text with LF endings so artifacts are byte-identical per platform."""
 
