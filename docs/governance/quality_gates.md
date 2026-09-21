@@ -36,6 +36,7 @@ Agent Review 的功能不能仅以“命令能够运行”为完成标准。每�
 - `python -m unittest discover -s tests -v` 通过；
 - `python scripts/coverage_report.py` 通过，且没有模块跌破其棘轮下限；
 - `python scripts/mutation_check.py` 通过，全部变异体均被测试捕获；
+- 新增拒绝分支必须同时有用例与变异体；仅有用例而变异体存活，说明该用例可能凭错误原因通过；
 - 离线演示能生成Markdown与JSON；
 - OpenAI-compatible本地模拟端到端测试通过；
 - 重复采样的聚合记录数、原始轨迹数和清单重复次数相互一致；

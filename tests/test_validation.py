@@ -13,7 +13,11 @@ import unittest
 from pathlib import Path
 
 from agent_audit.audit import AuditConfig, audit_records
-from agent_audit.io import load_score_records, load_scoring_cases
+from agent_audit.io import (
+    load_score_records,
+    load_scoring_cases,
+    write_score_records,
+)
 from agent_audit.models import ScoreRecord
 
 
@@ -225,6 +229,33 @@ class ScoringCaseCsvValidationTests(unittest.TestCase):
         )
         return path
 
+    def test_rejects_a_missing_file(self) -> None:
+        missing = Path(tempfile.mkdtemp()) / "absent.csv"
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            load_scoring_cases(missing)
+
+    def _write_raw(self, body: str) -> Path:
+        path = Path(tempfile.mkdtemp()) / "cases.csv"
+        path.write_text(body, encoding="utf-8", newline="\n")
+        return path
+
+    def test_rejects_a_file_without_a_header(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no header row"):
+            load_scoring_cases(self._write_raw(""))
+
+    def test_rejects_missing_required_columns(self) -> None:
+        with self.assertRaisesRegex(ValueError, "missing columns"):
+            load_scoring_cases(self._write_raw("case_id,text\nc1,hello\n"))
+
+    def test_rejects_an_unknown_variant_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported variant_type"):
+            load_scoring_cases(self._csv_with("c1,b1,rewrite,text one"))
+
+    def test_rejects_a_header_only_file(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no scoring cases"):
+            load_scoring_cases(self._write_raw(self.HEADER + "\n"))
+            load_scoring_cases(path)
+
     def test_rejects_duplicate_case_and_variant_pairs(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate case_id/variant_id"):
             load_scoring_cases(
@@ -277,6 +308,25 @@ class ScoringCaseCsvValidationTests(unittest.TestCase):
             {"baseline", "gaming", "degradation"},
         )
         self.assertEqual([case.text for case in cases][0], "text one")
+
+
+class ScoreCsvRoundTripTests(unittest.TestCase):
+    def test_writes_and_reads_back_records_without_a_standard_deviation(self) -> None:
+        records = [
+            ScoreRecord("System", "c1", "baseline", "baseline", 6.0, notes="n1"),
+            ScoreRecord("System", "c1", "gaming", "gaming", 6.25),
+            ScoreRecord("System", "c1", "degraded", "degradation", 4.5),
+        ]
+        path = Path(tempfile.mkdtemp()) / "scores.csv"
+
+        write_score_records(path, records)
+        restored = load_score_records(path)
+
+        self.assertEqual(len(restored), 3)
+        self.assertTrue(all(record.score_stddev is None for record in restored))
+        self.assertTrue(all(record.sample_count == 1 for record in restored))
+        self.assertAlmostEqual(restored[1].score, 6.25)
+        self.assertEqual(restored[0].notes, "n1")
 
 
 if __name__ == "__main__":

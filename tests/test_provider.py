@@ -123,6 +123,12 @@ class ProviderTests(unittest.TestCase):
         self.assertAlmostEqual(score, 4.0)
         self.assertEqual(reason, "weak evidence")
 
+    def test_rejects_braces_that_do_not_parse_as_json(self) -> None:
+        """Prose containing braces must not be mistaken for a scoring object."""
+
+        with self.assertRaisesRegex(ProviderError, "malformed JSON scoring output"):
+            _parse_score_content("My rating: {score: seven, reason: good}", 0.0, 10.0)
+
     def test_rejects_output_without_any_json_object(self) -> None:
         with self.assertRaisesRegex(ProviderError, "did not return a JSON scoring object"):
             _parse_score_content("I would rate this an eight out of ten.", 0.0, 10.0)

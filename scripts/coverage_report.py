@@ -29,18 +29,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # actually measured when it was set, so deleting or weakening tests trips the
 # gate while an ordinary refactor does not. Raise a floor once the matching
 # tests exist; never lower one to turn a red run green.
-OVERALL_FLOOR = 86.5
+OVERALL_FLOOR = 99.0
 MODULE_FLOORS = {
     "audit": 98.8,
-    "checkpoint": 83.2,
-    "cli": 57.2,
-    "comparison": 87.5,
+    "checkpoint": 99.0,
+    "cli": 97.0,
+    "comparison": 98.8,
     "html_report": 100.0,
-    "io": 94.5,
+    "io": 100.0,
     "models": 100.0,
-    "provider": 76.3,
+    "provider": 98.9,
     "report": 100.0,
-    "scoring": 91.3,
+    "scoring": 100.0,
 }
 
 # Percentages are compared at the precision they are printed, so the table and

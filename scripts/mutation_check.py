@@ -180,6 +180,51 @@ MUTANTS: tuple[Mutant, ...] = (
         "    if set(reference_variants) != set(candidate_variants):",
         "    if False:",
     ),
+    # --- long-run checkpoint integrity ---------------------------------------
+    Mutant(
+        "scoring",
+        "resume samples that belong to another run",
+        "    if unexpected_samples:",
+        "    if False:",
+    ),
+    Mutant(
+        "scoring",
+        "allow any repeat count",
+        "    if isinstance(repeats, bool) or not isinstance(repeats, int) or not 1 <= repeats <= 100:",
+        "    if False:",
+    ),
+    Mutant(
+        "checkpoint",
+        "resume a checkpoint recorded under a different context",
+        "    if context != expected_context:",
+        "    if False:",
+    ),
+    Mutant(
+        "checkpoint",
+        "accept duplicate samples in a checkpoint",
+        "        if sample.identity in samples:",
+        "        if False:",
+    ),
+    # --- manifest evidence chain ---------------------------------------------
+    Mutant(
+        "cli",
+        "accept a manifest whose record count contradicts the CSV",
+        "    if record_count != expected_record_count:",
+        "    if False:",
+    ),
+    # --- untrusted input ------------------------------------------------------
+    Mutant(
+        "io",
+        "accept a non-finite score from a CSV",
+        "            if not math.isfinite(score):",
+        "            if False:",
+    ),
+    Mutant(
+        "provider",
+        "retry a terminal client error",
+        "                retryable = exc.code in {408, 409, 429, 500, 502, 503, 504}",
+        "                retryable = True",
+    ),
 )
 
 
