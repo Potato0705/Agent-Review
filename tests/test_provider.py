@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 from pathlib import Path
 import re
@@ -10,7 +12,8 @@ from types import SimpleNamespace
 import unittest
 
 from agent_audit.audit import AuditConfig, audit_records
-from agent_audit.cli import run_audit, run_score
+from agent_audit.cli_audit import run as run_audit
+from agent_audit.cli_score import run as run_score
 from agent_audit.io import load_score_records
 from agent_audit.models import ScoringCase
 from agent_audit.provider import (
@@ -256,6 +259,52 @@ class ProviderTests(unittest.TestCase):
                     api_key="secret",
                 )
             )
+
+    def test_the_manifest_lands_next_to_the_scores_when_unnamed(self) -> None:
+        """The default path and the checkpoint tally are what an operator sees."""
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cases_path = root / "cases.csv"
+            rubric_path = root / "rubric.md"
+            scores_path = root / "scores.csv"
+            cases_path.write_text(
+                "case_id,variant_id,variant_type,text,notes\n"
+                'c1,base,baseline,"SCORE=7.0",base\n'
+                'c1,game,gaming,"SCORE=7.8",game\n'
+                'c1,drop,degradation,"SCORE=5.0",drop\n',
+                encoding="utf-8",
+            )
+            rubric_path.write_text("Test rubric", encoding="utf-8")
+            args = SimpleNamespace(
+                api_key_env="MISSING_TEST_KEY",
+                base_url=self.base_url,
+                rubric_file=str(rubric_path),
+                input=str(cases_path),
+                output=str(scores_path),
+                model="mock-model",
+                system_name="Mock System",
+                score_min=0.0,
+                score_max=10.0,
+                temperature=0.0,
+                repeats=1,
+                timeout=5.0,
+                max_retries=0,
+                manifest=None,
+                raw_output=None,
+                checkpoint=str(root / "checkpoint.jsonl"),
+                resume=False,
+            )
+            printed = io.StringIO()
+
+            with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                self.assertEqual(run_score(args), 0)
+
+            self.assertTrue((root / "scores.manifest.json").exists())
+            self.assertIn("Checkpoint samples:", printed.getvalue())
+            self.assertIn("3 new", printed.getvalue())
 
     def test_cli_scoring_files_feed_audit_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

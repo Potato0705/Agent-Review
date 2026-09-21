@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from agent_audit.audit import AuditConfig, audit_records
-from agent_audit.cli import run_compare
+from agent_audit.cli_compare import run as run_compare
 from agent_audit.comparison import compare_audits, render_comparison_report
 from agent_audit.models import ScoreRecord
 

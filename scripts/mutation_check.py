@@ -208,7 +208,7 @@ MUTANTS: tuple[Mutant, ...] = (
     ),
     # --- manifest evidence chain ---------------------------------------------
     Mutant(
-        "cli",
+        "cli_audit",
         "accept a manifest whose record count contradicts the CSV",
         "    if record_count != expected_record_count:",
         "    if False:",
@@ -263,13 +263,13 @@ MUTANTS: tuple[Mutant, ...] = (
     ),
     # --- appending must not destroy or launder hand-written work --------------
     Mutant(
-        "cli",
+        "cli_common",
         "overwrite an existing case file and its hand edits",
         "    if output_path.exists() and not append:",
         "    if False:",
     ),
     Mutant(
-        "cli",
+        "cli_audit",
         "accept a mixed set as machine-generated",
         '    if declared_origin == "machine-generated" and set_origin != "machine-generated":',
         "    if False:",
@@ -294,13 +294,13 @@ MUTANTS: tuple[Mutant, ...] = (
     ),
     # --- a machine-generated claim must be provable ----------------------------
     Mutant(
-        "cli",
+        "cli_audit",
         "accept scored cases the generator never produced",
         "    if output_sha256 != scored_input_sha256.lower():",
         "    if False:",
     ),
     Mutant(
-        "cli",
+        "cli_audit",
         "let a machine-generated claim go unproven",
         '    if config.variant_origin == "machine-generated" and not generation_argument:',
         "    if False:",
@@ -353,19 +353,19 @@ MUTANTS: tuple[Mutant, ...] = (
     ),
     # --- a model rewrite is a draft until a human ratifies it -----------------
     Mutant(
-        "cli",
+        "cli_generate",
         "merge rewrites nobody approved",
         '        if row.status != "approved":',
         "        if False:",
     ),
     Mutant(
-        "cli",
+        "cli_generate",
         "merge a rewrite drafted against a since-edited baseline",
         "        if row.baseline_sha256 != expected[row.case_id]:",
         "        if False:",
     ),
     Mutant(
-        "cli",
+        "cli_generate",
         "keep a human-ratified set labelled machine-generated",
         "        if ratified:\n"
         '            set_origin = "mixed"',
@@ -373,31 +373,31 @@ MUTANTS: tuple[Mutant, ...] = (
         '            set_origin = "mixed"',
     ),
     Mutant(
-        "cli",
+        "cli_generate",
         "re-append ratified rewrites that are already in the file",
         "        present = {(row.case_id, row.variant_id) for row in rows}",
         "        present = set()",
     ),
     Mutant(
-        "cli",
+        "cli_generate",
         "let a paraphrase review bypass --append and drop the existing set",
         '    if review_argument and not getattr(args, "append", False):',
         "    if False:",
     ),
     Mutant(
-        "cli",
+        "cli_audit",
         "accept a generated set declared as human-authored",
         '    if declared_origin == "human-authored":',
         "    if False:",
     ),
     Mutant(
-        "cli",
+        "cli_audit",
         "grade rewrites with the model that wrote them",
         "            and paraphrase_model.casefold() == scoring_model.casefold()",
         "            and False",
     ),
     Mutant(
-        "cli",
+        "cli_generate",
         "guess at the drafting model instead of refusing",
         "    if not manifest_path.exists():\n"
         "        raise ValueError(\n"

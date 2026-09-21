@@ -378,6 +378,7 @@ python -m agent_audit compare `
 
 ```text
 agent_audit/                核心审计与报告代码
+agent_audit/cli.py          子命令注册表，每个子命令一个 cli_*.py 模块
 agent_audit/checkpoint.py   长任务检查点与安全恢复
 agent_audit/paraphrase.py   模型起草的等义改写与审阅检查
 agent_audit/trajectory.py   Agent 轨迹的数据模型、读取与转写渲染
