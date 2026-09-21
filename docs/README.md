@@ -13,7 +13,7 @@ HTML示例只使用合成数据，可通过 `scripts/build_public_demo.ps1` 确�
 
 - [Gemma 3 4B评分可靠性案例](case_studies/gemma3_case_study.md)
 - [Gemma 3 4B与Gemma 4 E4B同条件对比](case_studies/gemma_version_comparison.md)
-- [Gemma 3 4B 轨迹评分：证据缺失与可见标记](case_studies/gemma3_trajectory_case_study.md)
+- [轨迹评分：证据缺失与可见标记（Gemma 3 4B 与 Gemma 4 E4B）](case_studies/gemma3_trajectory_case_study.md)
 
 三篇案例均为5个基准的探索性方法示范，不是模型排行榜或生产认证。
 
