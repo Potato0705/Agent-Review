@@ -171,6 +171,35 @@ class AuditTests(unittest.TestCase):
                     html,
                 )
 
+    def test_report_states_the_variant_origin_and_its_evidence_limit(self) -> None:
+        """A machine-generated set is a floor test and must say so."""
+
+        records = [
+            ScoreRecord("Graded", "c1", "base", "baseline", 7.0),
+            ScoreRecord("Graded", "c1", "gaming", "gaming", 6.8),
+            ScoreRecord("Graded", "c1", "degraded", "degradation", 5.5),
+        ]
+        floor_wording = "下限测试"
+
+        for origin, expect_floor_note in (
+            ("human-authored", False),
+            ("machine-generated", True),
+            ("mixed", True),
+            ("unspecified", False),
+        ):
+            with self.subTest(origin=origin):
+                result = audit_records(records, AuditConfig(variant_origin=origin))
+
+                report = render_markdown_report(result)
+                origin_lines = [
+                    line
+                    for line in report.splitlines()
+                    if line.startswith("- 变体来源：")
+                ]
+
+                self.assertEqual(len(origin_lines), 1)
+                self.assertEqual(floor_wording in origin_lines[0], expect_floor_note)
+
     def test_rejects_negative_thresholds(self) -> None:
         records = load_score_records(ROOT / "examples" / "demo_scores.csv")
         with self.assertRaisesRegex(ValueError, "invariance_tolerance"):

@@ -68,6 +68,25 @@ def _provenance_note(result: AuditResult) -> str:
     return labels[result.config.data_provenance]
 
 
+def _variant_origin_note(result: AuditResult) -> str:
+    labels = {
+        "human-authored": "变体由人工撰写。",
+        "machine-generated": (
+            "变体由工具生成，属于下限测试；"
+            "未通过是确凿证据，通过不能证明系统可靠。"
+        ),
+        "mixed": (
+            "变体由人工与工具混合产生；"
+            "其中工具生成的部分属于下限测试，"
+            "通过不能证明系统可靠。"
+        ),
+        "unspecified": (
+            "变体来源未声明；正式解释或交付前必须补充。"
+        ),
+    }
+    return labels[result.config.variant_origin]
+
+
 def _evidence_note(result: AuditResult) -> str:
     if result.case_count < 5:
         return "**演示级**（少于5个基准案例，只能验证流程和暴露个别失败模式）"
@@ -92,6 +111,7 @@ def render_markdown_report(result: AuditResult) -> str:
         ),
         f"- 临界不确定判定：{result.uncertain_count}",
         f"- 数据来源：{_provenance_note(result)}",
+        f"- 变体来源：{_variant_origin_note(result)}",
         f"- 证据强度：{_evidence_note(result)}",
         "",
         "## 核心指标",
