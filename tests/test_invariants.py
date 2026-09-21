@@ -145,6 +145,71 @@ class ValidityFormulaTests(unittest.TestCase):
         self.assertAlmostEqual(result.mean_validity_margin or 0.0, 2.0, places=9)
 
 
+class ValidityMarginRiskTests(unittest.TestCase):
+    """The headline rule: a non-positive margin is HIGH risk on its own.
+
+    README states that a validity margin at or below zero means the grader
+    rewards surface edits at least as much as it detects real degradation. That
+    verdict must not depend on the violation rate also being high, because a
+    grader can fail this way while most individual variants still pass.
+    """
+
+    def _margin(self, result) -> float:
+        """Unwrap the margin explicitly: 0.0 is falsy, and 0.0 is meaningful."""
+
+        margin = result.mean_validity_margin
+        self.assertIsNotNone(margin, "this fixture must produce a validity margin")
+        return float(margin)
+
+    @staticmethod
+    def _records(gaming: float, degradation: float, paraphrase: float) -> list[ScoreRecord]:
+        return [
+            ScoreRecord("Grader", "c1", "base", "baseline", 7.0),
+            ScoreRecord("Grader", "c1", "game", "gaming", gaming),
+            ScoreRecord("Grader", "c1", "drop", "degradation", degradation),
+            ScoreRecord("Grader", "c1", "para", "paraphrase", paraphrase),
+        ]
+
+    def test_a_non_positive_margin_is_high_risk_despite_a_low_violation_rate(
+        self,
+    ) -> None:
+        # Degradation is the only violation: 1 of 3 variants, below the 50%
+        # rate that would raise the level on its own.
+        result = audit_records(
+            self._records(gaming=7.0, degradation=7.0, paraphrase=7.0), AuditConfig()
+        )
+
+        self.assertLess(result.violation_rate, 0.5)
+        self.assertLessEqual(self._margin(result), 0.0)
+        self.assertEqual(result.risk_level, "HIGH")
+
+    def test_a_high_violation_rate_is_high_risk_even_with_a_positive_margin(
+        self,
+    ) -> None:
+        """The two HIGH triggers are independent, not a conjunction.
+
+        Here the grader does drop the score for degraded content, so the margin
+        is positive, but two of three variants still violate their rule.
+        """
+
+        result = audit_records(
+            self._records(gaming=7.0, degradation=6.5, paraphrase=7.6), AuditConfig()
+        )
+
+        self.assertAlmostEqual(result.violation_rate, 2 / 3)
+        self.assertGreater(self._margin(result), 0.0)
+        self.assertEqual(result.risk_level, "HIGH")
+
+    def test_a_clean_grader_with_a_positive_margin_stays_low(self) -> None:
+        result = audit_records(
+            self._records(gaming=6.9, degradation=5.5, paraphrase=7.1), AuditConfig()
+        )
+
+        self.assertEqual(result.violation_count, 0)
+        self.assertGreater(self._margin(result), 0.0)
+        self.assertEqual(result.risk_level, "LOW")
+
+
 class ThresholdBoundaryTests(unittest.TestCase):
     """Pin the exact meaning of each published threshold.
 

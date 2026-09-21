@@ -20,6 +20,9 @@ function Assert-LastExitCode([string]$Message) {
 & powershell -ExecutionPolicy Bypass -File scripts\review.ps1
 Assert-LastExitCode "Local quality gates failed."
 
+python scripts/mutation_check.py
+Assert-LastExitCode "Mutation gate failed; a defect in the decision logic would ship undetected."
+
 $remote = git remote get-url origin
 Assert-LastExitCode "Cannot read origin remote."
 if ($remote.Trim() -ne $ExpectedRemote) {
