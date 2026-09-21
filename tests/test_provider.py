@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 
 from agent_audit.audit import AuditConfig, audit_records
-from agent_audit.cli import run_score
+from agent_audit.cli import run_audit, run_score
 from agent_audit.io import load_score_records
 from agent_audit.models import ScoringCase
 from agent_audit.provider import OpenAICompatibleConfig, OpenAICompatibleScorer
@@ -175,6 +175,8 @@ class ProviderTests(unittest.TestCase):
             scores_path = root / "scores.csv"
             manifest_path = root / "manifest.json"
             raw_path = root / "raw.jsonl"
+            report_path = root / "audit.md"
+            audit_json_path = root / "audit.json"
             cases_path.write_text(
                 "case_id,variant_id,variant_type,text,notes\n"
                 'c1,base,baseline,"SCORE=7.0",base\n'
@@ -217,6 +219,29 @@ class ProviderTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["repeats"], 2)
             self.assertEqual(len(raw_path.read_text(encoding="utf-8").splitlines()), 6)
+
+            audit_args = SimpleNamespace(
+                input=str(scores_path),
+                report=str(report_path),
+                json_output=str(audit_json_path),
+                invariance_tolerance=0.5,
+                min_degradation_drop=1.0,
+                gaming_tolerance=0.0,
+                score_min=0.0,
+                score_max=10.0,
+                data_provenance="public-demo",
+                manifest=str(manifest_path),
+            )
+            self.assertEqual(run_audit(audit_args), 0)
+            audit_payload = json.loads(audit_json_path.read_text(encoding="utf-8"))
+            self.assertEqual(audit_payload["comparison_context"]["repeats"], 2)
+            self.assertEqual(
+                audit_payload["comparison_context"]["model"], "mock-model"
+            )
+            self.assertEqual(
+                audit_payload["comparison_context"]["input_sha256"],
+                manifest["input_sha256"],
+            )
 
 
 if __name__ == "__main__":

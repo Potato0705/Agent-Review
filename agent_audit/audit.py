@@ -66,7 +66,7 @@ class AuditResult:
     config: AuditConfig
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        return {"schema_version": 1, **asdict(self)}
 
 
 def _mean(values: list[float]) -> float | None:

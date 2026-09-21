@@ -110,6 +110,8 @@ CSV 至少包含以下字段：
 
 首个真实本地模型示范见：[Gemma 3 4B 评分可靠性案例](docs/gemma3_case_study.md)。该案例包含5个基准文本，明确属于探索性证据。
 
+同条件版本对比见：[Gemma 3 4B 与 Gemma 4 E4B 对比](docs/gemma_version_comparison.md)。两侧各包含60次评分，并明确区分按均值观察到的改善与暂定变化。
+
 ## 默认判定规则
 
 - `gaming`：相对基准分数上升即记为违规。
@@ -144,12 +146,27 @@ python -m agent_audit audit `
 
 “暂定”表示证据不足以稳定分类，并不表示风险自动升高或降低。3次重复适合暴露明显随机性，不足以替代更大样本或人工复核。
 
+## 模型或版本对比
+
+先分别生成两份审计JSON，再运行：
+
+```powershell
+python -m agent_audit compare `
+  --reference outputs/reference_audit.json `
+  --candidate outputs/candidate_audit.json `
+  --report outputs/version_comparison.md `
+  --json outputs/version_comparison.json
+```
+
+审计命令会自动读取评分CSV旁的 `.manifest.json`，也可以用 `--manifest` 显式指定，并把输入哈希、评分标准哈希、温度和重复次数写入审计JSON。比较工具会拒绝这些运行指纹，以及案例集合、变体类型、判定阈值或评分范围不一致的结果。严重度变化统一为正数表示候选系统变差、负数表示改善；任何涉及临界判定或未估计随机性的变化都会标为“暂定”。该命令用于同条件回归审查，不支持把不同数据集上的结果拼成模型排行榜。
+
 ## 当前范围
 
-版本0.3支持两条相互分离的流程：
+版本0.4支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
 2. 对已有评分结果进行离线审计。
+3. 对两份同条件审计结果进行模型或版本回归比较。
 
 这种分离可以：
 
@@ -158,7 +175,7 @@ python -m agent_audit audit `
 - 在无网络和无外部依赖的环境中复现；
 - 清晰区分模型调用和效度分析。
 
-后续版本可增加自动变体生成、模型版本对比、Agent轨迹评测和HTML报告。
+后续版本可增加自动变体生成、Agent轨迹评测和HTML报告。
 
 ## 目录结构
 
@@ -173,6 +190,7 @@ docs/first_week_playbook.md 首周获客执行清单
 docs/review_log.md          逻辑审查、问题与验证证据
 docs/quality_gates.md       每一阶段必须通过的审查门
 docs/gemma3_case_study.md   首个真实本地模型公开示范
+docs/gemma_version_comparison.md 同条件模型版本对比示范
 outputs/                    本地生成结果（默认不提交）
 ```
 
