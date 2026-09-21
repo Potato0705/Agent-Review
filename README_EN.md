@@ -107,6 +107,7 @@ Both model studies are explicitly exploratory. Five hand-authored baseline cases
 - Remote endpoints must use HTTPS; plain HTTP is allowed only for localhost.
 - Variant labels are not sent to the scoring model.
 - Raw replies and checkpoints are opt-in and must be treated as sensitive data.
+- `--variant-origin` records whether the variants were written by hand (`human-authored`), produced by a generator (`machine-generated`), or both (`mixed`). A generated set is a floor test: failing it is conclusive, passing it proves little, and the report says so. A comparison is refused when the two sides disagree.
 - Generated files under `outputs/` are ignored by Git by default.
 - HTML reports escape untrusted labels and messages, use a restrictive Content Security Policy, and load no scripts or external resources.
 - Private customer data must not be posted in public issues or sent to an unauthorized model provider.

@@ -124,13 +124,36 @@ class ModuleBudgetTests(unittest.TestCase):
         """A module without a budget can silently lose coverage."""
 
         measured = {
-            source.stem
-            for source in PACKAGE_DIR.glob("*.py")
-            if source.stem not in COVERAGE_TOOL.EXCLUDED_MODULES
+            name
+            for name in (
+                COVERAGE_TOOL.module_name(source)
+                for source in PACKAGE_DIR.rglob("*.py")
+            )
+            if name not in COVERAGE_TOOL.EXCLUDED_MODULES
         }
 
         self.assertEqual(measured - set(COVERAGE_TOOL.MAX_UNCOVERED_LINES), set())
         self.assertEqual(set(COVERAGE_TOOL.MAX_UNCOVERED_LINES) - measured, set())
+
+    def test_module_discovery_is_recursive(self) -> None:
+        """A subpackage must not be able to slip past the gate unmeasured."""
+
+        nested = PACKAGE_DIR / "_probe_pkg" / "inner.py"
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        (nested.parent / "__init__.py").write_text("", encoding="utf-8")
+        nested.write_text("VALUE = 1\n", encoding="utf-8")
+        try:
+            names = {
+                COVERAGE_TOOL.module_name(source)
+                for source in PACKAGE_DIR.rglob("*.py")
+            }
+
+            self.assertIn("_probe_pkg.inner", names)
+            self.assertIn("_probe_pkg.__init__", names)
+        finally:
+            nested.unlink()
+            (nested.parent / "__init__.py").unlink()
+            nested.parent.rmdir()
 
     def test_budgets_are_small_enough_to_notice_a_deleted_test_file(self) -> None:
         """A budget large enough to hide real regressions is not a gate."""

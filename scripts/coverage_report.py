@@ -100,6 +100,18 @@ class _PathScopedIgnore:
         return 0 if resolved.startswith(self._root) else 1
 
 
+def module_name(source: Path) -> str:
+    """Return a module's dotted name relative to the package directory.
+
+    Discovery is recursive so that a future subpackage cannot slip past the
+    gate: a module the tool never looks at reports no coverage at all, which
+    is indistinguishable from having none.
+    """
+
+    relative = source.resolve().relative_to(PACKAGE_DIR.resolve()).with_suffix("")
+    return ".".join(relative.parts)
+
+
 def _executable_linenos(path: Path) -> set[int]:
     """Return every line number that carries bytecode."""
 
@@ -167,14 +179,13 @@ def _measure(executed_by_file: dict[str, list[int]]) -> list[ModuleCoverage]:
         os.path.normcase(path): set(lines) for path, lines in executed_by_file.items()
     }
     modules: list[ModuleCoverage] = []
-    for source in sorted(PACKAGE_DIR.glob("*.py")):
-        if source.stem in EXCLUDED_MODULES:
+    for source in sorted(PACKAGE_DIR.rglob("*.py")):
+        name = module_name(source)
+        if name in EXCLUDED_MODULES:
             continue
         key = os.path.normcase(str(source.resolve()))
         modules.append(
-            ModuleCoverage(
-                source.stem, normalised.get(key, set()), _executable_linenos(source)
-            )
+            ModuleCoverage(name, normalised.get(key, set()), _executable_linenos(source))
         )
     return modules
 
@@ -225,7 +236,8 @@ def _report(modules: list[ModuleCoverage], show_missing: bool) -> int:
             if not module.missing:
                 continue
             source = (
-                (PACKAGE_DIR / f"{module.name}.py")
+                PACKAGE_DIR.joinpath(*module.name.split("."))
+                .with_suffix(".py")
                 .read_text(encoding="utf-8")
                 .splitlines()
             )

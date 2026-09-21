@@ -176,6 +176,8 @@ python -m agent_audit audit `
 
 `--data-provenance` 用于区分 `synthetic`、`public-demo`、`authorized-private` 和 `unspecified`。来源未声明的报告只能作为内部草稿，不能正式交付。
 
+`--variant-origin` 用于区分 `human-authored`、`machine-generated`、`mixed` 和 `unspecified`。机器生成的变体属于下限测试：没通过是确凿证据，通过不能证明系统可靠，报告会明确写出这一点。版本对比要求两侧声明一致。
+
 ## 重复采样与临界判定
 
 当基准和变体都经过重复评分时，工具根据两组均值差的标准误构造保守95% t 区间。为避免小样本过度自信，自由度取两组中较小样本量减1。区间跨越对应判定阈值时，该项标为“临界”。
@@ -206,7 +208,7 @@ python -m agent_audit compare `
 
 ## 当前范围
 
-版本0.8支持三条相互分离的流程：
+版本0.9支持三条相互分离的流程：
 
 1. 调用OpenAI-compatible模型产生评分、理由和运行清单；
 2. 对已有评分结果进行离线审计；

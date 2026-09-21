@@ -212,6 +212,29 @@ MUTANTS: tuple[Mutant, ...] = (
         "    if record_count != expected_record_count:",
         "    if False:",
     ),
+    # --- variant origin declaration -------------------------------------------
+    Mutant(
+        "comparison",
+        "allow audits with different variant origins",
+        '    if reference_config.get("variant_origin") != candidate_config.get(\n'
+        '        "variant_origin"\n'
+        "    ):",
+        "    if False:",
+    ),
+    Mutant(
+        "report",
+        "drop the floor-test warning for generated variants",
+        '            "变体由工具生成，属于下限测试；"\n'
+        '            "未通过是确凿证据，通过不能证明系统可靠。"',
+        '            "变体由工具生成。"',
+    ),
+    Mutant(
+        "html_report",
+        "drop the floor-test warning from the delivered page",
+        '            "变体由工具生成，属于下限测试；"\n'
+        '            "未通过是确凿证据，通过不能证明系统可靠。"',
+        '            "变体由工具生成。"',
+    ),
     # --- untrusted input ------------------------------------------------------
     Mutant(
         "io",
