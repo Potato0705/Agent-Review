@@ -23,6 +23,9 @@ Assert-LastExitCode "Local quality gates failed."
 python scripts/mutation_check.py
 Assert-LastExitCode "Mutation gate failed; a defect in the decision logic would ship undetected."
 
+python scripts/quickstart_check.py
+Assert-LastExitCode "Quickstart check failed; a fresh clone does not install or the README does not run."
+
 $remote = git remote get-url origin
 Assert-LastExitCode "Cannot read origin remote."
 if ($remote.Trim() -ne $ExpectedRemote) {
