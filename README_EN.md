@@ -138,6 +138,20 @@ keep the final answer. That is the sharpest probe in this modality: same
 conclusion, no longer supported. Paraphrase reorders only the groups a
 reviewer declared independent, and refuses by name when none were declared.
 
+The shipped rubric carries a dimension worth calling out: **corroboration and
+robustness** — was the key fact confirmed by an independent second source? It
+states explicitly that repeating the same call is not corroboration. That
+clause is what makes `redundant_tool_calls` a meaningful probe: a grader that
+awards corroboration credit for a repeat is failing on its own terms, not
+exploiting an ambiguity.
+
+Without it, a run that is correct, fully evidenced and clearly written locks
+in 8 of 10, leaving a gaming variant nowhere to go. Asking whether padding
+helps an already-flawless run is asking whether the grader will score above
+the maximum. That is inherent to paired testing rather than a defect, and
+what the tool can do about it is detect and declare that the metric is
+unreadable this time.
+
 The output is ordinary `score` input, so scoring, auditing, comparison and
 origin declarations are unchanged; the manifest adds `modality: "trajectory"`.
 
